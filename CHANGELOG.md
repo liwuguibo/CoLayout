@@ -31,4 +31,4 @@
 - 两个分支均通过 Ruff、客户端 schema、文档链接和发布/隐私审计。
 - Linux 固定 Bridge 依赖来源、归档校验和许可证检查通过。
 - `alpha` 的真实显示服务器 Qt 拖框与 45° 控件测试通过。
-- 基础 `alpha` 已使用 `uv 0.13.7` 和固定 Bridge 归档完成独立干净安装，`check_environment.py`、`smoke_onboarding` 与 `smoke_layout_client` 均通过。45° 增量最终代码的重复干净安装因 PyPI TLS 连接失败而中止，未切换镜像；其完整源码回归与审计不受影响。smoke 使用合成几何和真实 APP/HTTP，不包含 SSH、服务器 DRC 或真实 PDK。
+- 最终 `alpha` 使用 `uv 0.13.7`、官方 PyPI 和固定 Bridge 归档完成独立干净安装；此前的 TLS 失败在重试后恢复，未切换镜像。`check_environment.py`、663 项公开回归、`smoke_onboarding` 与 `smoke_layout_client` 均在该环境通过。smoke 使用合成几何和真实 APP/HTTP，不包含 SSH、服务器 DRC 或真实 PDK。
