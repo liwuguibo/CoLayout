@@ -76,6 +76,8 @@ AgentHTTPServer POST /call
 
 [Editor.transaction](../../colayout_lite/editor.py) stages ordered operations and publishes once only if its source is unchanged. publish validates region constraints, references and ownership, creates one undo step and notifies views. A new native baseline is an undo-history boundary. Agent-owned undo uses history tokens, not a second undo stack.
 
+Metal pour uses the same domain semantics for the UI and Agent: create_pour's allow_45 parameter and the human 45° cornering checkbox are both off by default. In that mode, non-orthogonal obstacles receive conservative axis-aligned covers, output has horizontal/vertical edges only, and orthogonal slices are merged into simple polygons without holes, including concave L/U shapes. When enabled, 45°/90° edges are permitted; supported 45° diagonal obstacles are avoided using their actual 45° contours, while unsupported angles still receive conservative axis-aligned covers. Output slices are likewise merged into simple polygons without holes. The UI and Agent must not use different defaults or obstacle contours.
+
 ## 4. Parallel workers and adoption
 
 [batch_edits.py](../../colayout_lite/agent_tools/batch_edits.py) sends eligible large batches to [batch_worker.py](../../colayout_lite/agent_tools/batch_worker.py); prepare_local reuses ordered domain validation. [edit_adoption.adopt_edit](../../colayout_lite/agent_tools/edit_adoption.py) verifies cancellation, lease/current inputs and then calls workspace_delta.merge followed by Editor.publish.

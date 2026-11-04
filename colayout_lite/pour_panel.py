@@ -1,7 +1,7 @@
 """Canvas metal-pour creation through the shared layout-helper service."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from .drawing_mode import cancel_drawing
 from .layer_choices import populate_layers
@@ -28,6 +28,9 @@ class PourPanel(QWidget):
         self.clearance.setRange(0.000001, 1000000)
         self.clearance.setSuffix(' µm')
         form.addRow('最小间距', self.clearance)
+        self.allow_45 = QCheckBox('允许 45° 拐弯')
+        self.allow_45.setChecked(False)
+        form.addRow(self.allow_45)
         layout.addLayout(form)
         self.targets = QLabel('连接目标：未选择；将保留所有独立铜岛。')
         self.targets.setWordWrap(True)
@@ -91,6 +94,7 @@ class PourPanel(QWidget):
         self.layers.setEnabled(enabled)
         self.net.setEnabled(enabled)
         self.clearance.setEnabled(enabled)
+        self.allow_45.setEnabled(enabled)
 
     def start(self, on):
         if not on:
@@ -151,6 +155,7 @@ class PourPanel(QWidget):
                     'net_intent': net,
                     'clearance': self.clearance.value(),
                     'targets': target_ids or None,
+                    'allow_45': self.allow_45.isChecked(),
                 },
                 rules=getattr(getattr(window, 'drc', None), 'profile', None),
             )

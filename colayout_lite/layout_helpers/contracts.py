@@ -137,6 +137,7 @@ class Pour(Parameters):
     lpp: tuple[str, str]
     net_intent: str = Field(min_length=1)
     clearance: float = Field(gt=0)
+    allow_45: bool = False
     targets: list[str] | None = Field(default=None, min_length=1, max_length=128,
         description='Explicit direct-shape UIDs to connect. All other same-layer metal is avoided; disconnected islands are removed when targets are provided.')
 

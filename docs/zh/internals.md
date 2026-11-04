@@ -76,6 +76,8 @@ AgentHTTPServer POST /call
 
 [Editor.transaction](../../colayout_lite/editor.py) 按顺序暂存操作，仅在源未变化时一次发布。publish 验证区域约束、引用和占用，生成一步撤销并通知视图。新原生基线是撤销历史边界。Agent 自有撤销使用历史 token，不另建撤销栈。
 
+铺铜由 UI 与 Agent 共用同一领域语义：create_pour 的 allow_45 与人端 45° 拐弯复选框均默认关闭。关闭时使用保守轴对齐包围处理非正交障碍，输出仅含水平/垂直边，正交切片合并为无孔简单多边形并支持 L/U 凹角。开启后允许 45°/90° 边，支持的 45° 斜障碍按实际 45° 轮廓避让，非支持角度仍使用保守轴对齐包围；输出切片同样合并为无孔简单多边形。UI 与 Agent 不得采用不同的默认值或障碍轮廓。
+
 ## 4. 并行后台任务与结果采用
 
 [batch_edits.py](../../colayout_lite/agent_tools/batch_edits.py) 将符合条件的大批次交给 [batch_worker.py](../../colayout_lite/agent_tools/batch_worker.py)，prepare_local 复用顺序领域校验。[edit_adoption.adopt_edit](../../colayout_lite/agent_tools/edit_adoption.py) 核对取消、租约、当前输入，再调用 workspace_delta.merge 和 Editor.publish。

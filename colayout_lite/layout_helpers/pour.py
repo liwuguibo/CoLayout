@@ -28,25 +28,35 @@ def _polygons(geometry):
     return [part for child in geometry.geoms for part in _polygons(child)]
 
 
-def _orthogonal(geometry):
+def _supported(geometry, allow_45):
     for polygon in _polygons(geometry):
         for ring in (polygon.exterior, *polygon.interiors):
-            if any(
-                abs(a[0] - b[0]) > 1e-6 and abs(a[1] - b[1]) > 1e-6
-                for a, b in zip(ring.coords, ring.coords[1:])
-            ):
-                return False
+            for a, b in zip(ring.coords, ring.coords[1:]):
+                dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
+                if dx > 1e-6 and dy > 1e-6 and (not allow_45 or abs(dx - dy) > 1e-6):
+                    return False
     return True
 
 
-def _orthogonal_cover(geometry):
-    covered = [polygon if _orthogonal(polygon) else box(*polygon.bounds) for polygon in _polygons(geometry)]
+def _orthogonal(geometry):
+    return _supported(geometry, False)
+
+
+def _orthogonal_cover(geometry, allow_45=False):
+    covered = [
+        polygon if _supported(polygon, allow_45) else box(*polygon.bounds)
+        for polygon in _polygons(geometry)
+    ]
     return unary_union(covered) if covered else geometry
 
 
-def _points(polygon, grid):
-    if polygon.interiors or not _orthogonal(polygon):
-        raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜输出必须是只含水平/垂直边的无孔多边形。')
+def _points(polygon, grid, allow_45=False):
+    if polygon.interiors or not polygon.is_valid or not _supported(polygon, allow_45):
+        message = (
+            '铺铜输出必须是只含水平、垂直或 45° 边的无孔多边形。'
+            if allow_45 else '铺铜输出必须是只含水平/垂直边的无孔多边形。'
+        )
+        raise LiteError('POUR_NON_ORTHOGONAL_RESULT', message)
     points = []
     for x, y in polygon.exterior.coords[:-1]:
         point = (round(x), round(y))
@@ -69,36 +79,43 @@ def _points(polygon, grid):
             break
         points = simplified
     edges = zip(points, points[1:] + points[:1])
-    if any(a[0] != b[0] and a[1] != b[1] for a, b in edges):
-        raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜输出不得包含斜边。')
+    if any(
+        a[0] != b[0] and a[1] != b[1]
+        and (not allow_45 or abs(a[0] - b[0]) != abs(a[1] - b[1]))
+        for a, b in edges
+    ):
+        raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜输出包含不受支持角度的边。')
     return tuple(points)
 
 
-def _rectangle_slices(component, grid):
+def _vertical_slices(component, grid, allow_45=False):
     xs = sorted({
         round(x)
         for ring in (component.exterior, *component.interiors)
         for x, _ in ring.coords
     })
     min_y, max_y = component.bounds[1], component.bounds[3]
-    rectangles = []
+    slices = []
     for left, right in zip(xs, xs[1:]):
         if left == right:
             continue
         clipped = component.intersection(box(left, min_y - grid, right, max_y + grid))
         for part in _polygons(clipped):
-            bounds = part.bounds
-            rectangle = box(*bounds)
-            if not part.equals(rectangle) or not _orthogonal(rectangle):
-                raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜垂直切片未能形成矩形。')
-            rectangles.append(rectangle)
-    if len(rectangles) > 2048:
+            if part.interiors or not part.is_valid or not _supported(part, allow_45):
+                raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜垂直切片包含不受支持的角度或孔洞。')
+            if not allow_45:
+                rectangle = box(*part.bounds)
+                if not part.equals(rectangle) or not _orthogonal(rectangle):
+                    raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜垂直切片未能形成矩形。')
+                part = rectangle
+            slices.append(part)
+    if len(slices) > 2048:
         raise LiteError('POUR_TOO_COMPLEX', '铺铜中间切片超过 2048 个，请缩小范围或分区铺铜。')
-    return rectangles
+    return slices
 
 
-def _merge_rectangles(rectangles):
-    pieces = list(rectangles)
+def _merge_slices(slices, allow_45=False):
+    pieces = list(slices)
     merged = True
     while merged:
         merged = False
@@ -108,7 +125,10 @@ def _merge_rectangles(rectangles):
                 if first.boundary.intersection(second.boundary).length <= 1e-6:
                     continue
                 combined = first.union(second)
-                if combined.geom_type != 'Polygon' or combined.interiors or not _orthogonal(combined):
+                if (
+                    combined.geom_type != 'Polygon' or combined.interiors or not combined.is_valid
+                    or not _supported(combined, allow_45)
+                ):
                     continue
                 pieces[index] = combined
                 del pieces[other]
@@ -119,18 +139,18 @@ def _merge_rectangles(rectangles):
     return pieces
 
 
-def _pour_pieces(geometry, grid):
+def _pour_pieces(geometry, grid, allow_45=False):
     pieces = []
     slice_count = 0
     for component in _polygons(geometry):
-        if not _orthogonal(component):
-            raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜计算结果包含非正交边。')
-        rectangles = _rectangle_slices(component, grid)
-        merged = _merge_rectangles(rectangles)
+        if not component.is_valid or not _supported(component, allow_45):
+            raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜计算结果包含不受支持的角度或无效多边形。')
+        slices = _vertical_slices(component, grid, allow_45)
+        merged = _merge_slices(slices, allow_45)
         if abs(sum(piece.area for piece in merged) - component.area) > 1e-4:
             raise LiteError('POUR_GEOMETRY_INVALID', '铺铜切片合并后面积不一致。')
         pieces.extend(merged)
-        slice_count += len(rectangles)
+        slice_count += len(slices)
     if len(pieces) > MAX_POLYGONS:
         raise LiteError(
             'POUR_TOO_COMPLEX',
@@ -203,7 +223,10 @@ def create(editor, args, rules=None, *, cancelled=None):
     if missing:
         raise LiteError('POUR_GEOMETRY_INCOMPLETE', '原生黑盒缺少边界，不能安全铺铜。', uids=missing)
     foreign = [row.geometry for row in physical if row.layer == args.lpp[0] and row.owner not in targets]
-    obstacles = [_orthogonal_cover(geometry) for geometry in foreign + [row[1] for row in policy_rows]]
+    obstacles = [
+        _orthogonal_cover(geometry, args.allow_45)
+        for geometry in foreign + [row[1] for row in policy_rows]
+    ]
     target_geometry = unary_union([row.geometry for row in target_rows]) if target_rows else None
     grid_guard = sqrt(0.5) * profile.grid
     fill = None
@@ -232,11 +255,14 @@ def create(editor, args, rules=None, *, cancelled=None):
         if not connected:
             raise LiteError('POUR_NO_CONNECTED_AREA', '铺铜范围无法与任何指定目标形成有面积的同层连接。')
         fill = unary_union(connected)
-    pieces, slice_count = _pour_pieces(fill, profile.grid)
+    pieces, slice_count = _pour_pieces(fill, profile.grid, args.allow_45)
     operations = []
     try:
         for piece in pieces:
-            shape = Shape(kind='polygon', lpp=tuple(args.lpp), points=_points(piece, profile.grid), net_intent=args.net_intent)
+            shape = Shape(
+                kind='polygon', lpp=tuple(args.lpp),
+                points=_points(piece, profile.grid, args.allow_45), net_intent=args.net_intent,
+            )
             operations.append(Operation(action='create', shape=shape))
     except ValueError as exc:
         raise LiteError('POUR_GEOMETRY_INVALID', f'铺铜拆分产生了无效多边形：{exc}') from exc
@@ -253,7 +279,7 @@ def create(editor, args, rules=None, *, cancelled=None):
         'created_uids': created,
         'polygon_count': len(created),
         'rectangle_slice_count': slice_count,
-        'orthogonal': True,
+        'orthogonal': _orthogonal(fill),
         'area_um2': fill.area / profile.dbu_per_micron**2,
         'clearance_um': clearance / profile.dbu_per_micron,
         'grid_guard_um': grid_guard / profile.dbu_per_micron,

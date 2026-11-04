@@ -2265,6 +2265,11 @@
                 "title": "Clearance",
                 "type": "number"
               },
+              "allow_45": {
+                "default": false,
+                "title": "Allow 45",
+                "type": "boolean"
+              },
               "targets": {
                 "anyOf": [
                   {
@@ -2295,8 +2300,8 @@
           },
           "units": "workspace absolute µm; spacing is edge-to-edge; count is dimensionless",
           "atomic": true,
-          "geometry": "Rectangular bounds on one writable metal drawing LPP. Explicit targets are direct shapes/vias only; all other same-layer metal and routing-policy obstacles are avoided by clearance plus grid-rounding guard. Non-orthogonal obstacles receive conservative axis-aligned covers. Known conflicting target nets are rejected. With targets, disconnected islands are discarded; without targets, all islands remain.",
-          "execution": "Submit alone as an asynchronous atomic edit. Output uses horizontal/vertical edges only: orthogonal slices are merged into simple concave polygons where possible, never triangles or holed output. At most 512 polygons share one undo step. Geometry clearance is not DRC/LVS sign-off; run local and server checks."
+          "geometry": "Rectangular bounds on one writable metal drawing LPP. Explicit targets are direct shapes/vias only; all other same-layer metal and routing-policy obstacles are avoided by clearance plus grid-rounding guard. With allow_45=false (default), non-orthogonal obstacles receive conservative axis-aligned covers. With allow_45=true, supported 45° diagonal obstacles are avoided using their actual 45° contours; unsupported angles still receive conservative axis-aligned covers. Known conflicting target nets are rejected. With targets, disconnected islands are discarded; without targets, all islands remain.",
+          "execution": "Submit alone as an asynchronous atomic edit. With allow_45=false (default), output uses horizontal/vertical edges only; true permits 45°/90° edges. Slices are merged into simple polygons without holes, including concave L/U shapes where possible, never triangles or holed output. At most 512 polygons share one undo step. Geometry clearance is not DRC/LVS sign-off; run local and server checks."
         },
         "create_native_pin_escapes": {
           "uid": "required; direct native blackbox instance",
