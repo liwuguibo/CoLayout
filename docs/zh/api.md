@@ -43,6 +43,8 @@ API 不开放任意 Python/SKILL、直接 Bridge 访问、任意原生导入/同
 
 edit_region 的 tighten_region/tighten_child_region 与人端“收紧操作区”共用几何逻辑：按内容及直接子区 PIN 外形收紧，各轴自动预留自身/直接子区最大 PIN 尺寸的一半，再加 10%（至少一个制造网格），向外取整。padding_um 为额外叠加余量；返回 pin_clearance_um 为自动余量。仅在原框内收缩，不移动原生几何，不改变 PIN 模式，也不对已经过紧的原框额外提示余量不足。
 
+edit_region 的 create_pour 在矩形 bounds_um 内为一种可写金属 drawing LPP 铺铜，net_intent 和 clearance 必填。targets 只能显式列出本层普通图形/过孔 UID；其他同层金属、禁布区与黑盒策略均按间距避让，已知网络冲突会拒绝。指定目标后删除未连接铜岛，省略目标则保留所有独立铜岛。间距包含制造网格取整保护；有孔区域可能拆成多个普通多边形，单次最多 512 个。该动作单项异步提交并原子采用，所有 UID 共用一次撤销。几何间距不代替 DRC/LVS，仍须运行本地和服务器检查。
+
 ## 身份、版本和任务
 
 先 claim，保留返回的 session token；每个并行执行者使用独立客户端身份。编辑前 inspect，并提交 expected_revision 和实际对象 ID。不能以全局 revision 为由覆盖本区域的过期输入。

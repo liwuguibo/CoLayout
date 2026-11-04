@@ -18,7 +18,8 @@ ACTIONS = {'create_rect': '画矩形', 'create_path90': '画直角折线', 'crea
            'reset_via': '恢复过孔参数', 'set_net_intent': '设置网络标记', 'copy': '复制',
            'delete': '删除', 'transform': '整体变换'}
 ACTIONS.update({'create_bus':'批量平行线','arrange':'排列器件','align':'对齐器件',
-                'create_auto_vias':'自动打孔','create_multilayer_path':'跨层路径','create_guard':'生成保护环'})
+                'create_auto_vias':'自动打孔','create_multilayer_path':'跨层路径','create_guard':'生成保护环',
+                'create_pour':'铺铜'})
 ACTIONS.update({'create_child_region':'创建子操作区','set_child_region':'设置子操作区','resize_child_region':'调整子区边界',
                 'set_child_pin':'调整子区接口 PIN','dissolve_child_region':'解散子操作区','create_keepout':'创建禁布区',
                 'resize_keepout':'调整禁布范围','set_keepout':'设置禁布区','delete_keepout':'删除禁布区',

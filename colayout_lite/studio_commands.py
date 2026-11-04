@@ -46,6 +46,7 @@ class StudioCommands(QObject):
         self.add('reference_cases','参考案例库…',lambda:show_cases(window),'circuit')
         self.add('guard','保护环',self.show_guard,'region',enabled=self.can_edit_scope,idle=True)
         self.add('rectangle','矩形',self.show_rectangle,'rectangle',enabled=self.can_edit_scope)
+        self.add('pour','铺铜',self.show_pour,'pour',enabled=self.can_edit_scope)
         for key in ('agent_api','autoroute'):self.actions[key].setCheckable(True)
         self.refresh()
 
@@ -74,7 +75,7 @@ class StudioCommands(QObject):
             if key in ('sync','refresh') and not active:
                 hint=('将当前本地修改写入 Virtuoso，并读回核对。' if key=='sync' else
                       '从 Virtuoso 读取最新数据，保留本地层次；有待同步修改时不可读取覆盖。')
-            if e and key in ('region','markup','keepout','rectangle','guard'):
+            if e and key in ('region','markup','keepout','rectangle','pour','guard'):
                 if e.w.state in ('submitting','indeterminate','conflict'):
                     hint={
                         'submitting':'同步正在提交，完成或核对结果后可继续创建和编辑。',
@@ -160,6 +161,10 @@ class StudioCommands(QObject):
 
     def show_rectangle(self):
         from .rectangle_panel import show
+        show(self.window)
+
+    def show_pour(self):
+        from .pour_panel import show
         show(self.window)
 
     def import_dialog(self):

@@ -244,6 +244,7 @@ EDIT_ACTIONS = frozenset(
         'create_guard',
         'create_auto_vias',
         'create_multilayer_path',
+        'create_pour',
         'arrange',
         'align',
     )

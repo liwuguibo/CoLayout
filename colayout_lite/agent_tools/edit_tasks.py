@@ -20,7 +20,7 @@ def invoke(session, lease, args):
         return registry.status(job)
     batch=len(args.operations)>1 and len(args.operations)<=32 and all(op.action=='create_auto_vias' for op in args.operations)
     if args.mode != 'apply' or len(args.operations) != 1 and not batch:
-        raise LiteError('SLOW_EDIT_MUST_BE_ALONE', '保护环/跨层路径须单项提交；自动打孔可一次提交最多 32 个独立位置，整批原子采用。')
+        raise LiteError('SLOW_EDIT_MUST_BE_ALONE', '保护环/跨层路径/铺铜须单项提交；自动打孔可一次提交最多 32 个独立位置，整批原子采用。')
     operation = args.operations[0]
     for op in args.operations:
         if op.uid is not None:raise LiteError('CREATE_UID_ASSIGNED_BY_APP')

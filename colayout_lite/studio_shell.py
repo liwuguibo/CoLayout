@@ -81,7 +81,7 @@ class StudioShell(QObject):
             action.triggered.connect(lambda checked=False,index=i:self.set_peek(index));self.peek_actions.append(action)
         check=self.menu_button('检查','check');self.add_actions(check,('region_drc_local','region_drc_remote',None,'clear_net',None,'circuit','activity'))
         self.toolbar.addSeparator()
-        for key in ('region','markup','keepout','rectangle','guard'):self.toolbar_action(key)
+        for key in ('region','markup','keepout','rectangle','pour','guard'):self.toolbar_action(key)
         self.toolbar.addSeparator()
         for key in ('undo','redo'):self.toolbar_action(key,icon_only=True)
         self.toolbar_action('copy_id');self.toolbar.addSeparator()

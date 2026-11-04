@@ -5,6 +5,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 _PATHS={
     'rectangle':'<rect x="3" y="5" width="18" height="14"/>',
+    'pour':'<path d="M4 5h16v14H4Z"/><path d="m4 13 5-8m-5 14L14 5m-4 14 10-14m-5 14 5-7"/>',
     'route':'<path d="M3 6h7v12h11M3 18h4V6h14"/><circle cx="3" cy="6" r="1.5"/><circle cx="21" cy="18" r="1.5"/>',
     'open':'<path d="M3 7V4h7l2 3h9v13H3Z"/><path d="M3 11h18"/>',
     'save':'<path d="M4 3h13l4 4v14H3V3Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/>',

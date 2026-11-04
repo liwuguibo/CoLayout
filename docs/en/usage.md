@@ -21,6 +21,12 @@ Create an operation region around the objects to work on, inspect its interfaces
 
 During agent occupancy, physical human edits are locked for that construction level. Navigation remains available; positioning guides are the limited collaboration exception. Do not terminate another client's session to bypass a lock.
 
+## Metal pour
+
+The toolbar's 铺铜 action fills a dragged rectangle on a selected metal layer with a named net intent. Select direct shapes/vias to connect before opening the panel, if needed. The clearance defaults to the largest configured local spacing rule for that layer, or 0.2 µm when no rule exists, and can be adjusted for the process. Without targets, all independent islands remain; with targets, disconnected islands are removed. A known conflicting target net, out-of-region bounds or incomplete geometry rejects the whole operation.
+
+Pour avoids every same-layer object not explicitly selected as a target and respects keepouts and blackbox routing policy. Results remain ordinary editable polygons with one undo for the whole batch. Holed regions are split for native synchronization, with at most 512 polygons per call, and grid rounding adds a small clearance guard. This only enforces clearance from explicit obstacles; it does not replace width, density, antenna, electrical/thermal or complete DRC/LVS verification. Run local and server checks after pouring.
+
 ## Hierarchy and routing windows
 
 Ordinary leaf PCells participate in local/server checks. True native hierarchical objects remain blackboxes. Their public PINs may be inside their footprint: object-specific, layer-specific routing windows can open a limited corridor. These do not reveal/edit internal geometry or waive another object's keepout.

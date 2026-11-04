@@ -27,6 +27,10 @@ def execute(editor, action, params, *, rules=None, cancelled=None):
         from .multilayer_path import create
 
         return create(editor, args, rules, cancelled=cancelled)
+    if action == 'create_pour':
+        from .pour import create
+
+        return create(editor, args, rules, cancelled=cancelled)
     from .placement import arrange, align
 
     return (arrange if action == 'arrange' else align)(editor, args)

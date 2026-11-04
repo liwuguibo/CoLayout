@@ -79,7 +79,7 @@ CONDITIONS = {
         'status': ['job_id'],
         'cancel': ['job_id'],
         'slow_helpers': [
-            'create_guard/create_multilayer_path must be alone; up to 32 create_auto_vias operations may form one atomic batch; queued/running means edit_applied=false; completed result confirms adoption'
+            'create_guard/create_multilayer_path/create_pour must be alone; up to 32 create_auto_vias operations may form one atomic batch; queued/running means edit_applied=false; completed result confirms adoption'
         ],
         'large_local_batches': [
             '8–64 direct-object or native-routing-window operations run as an atomic background job; use the same edit_region status/cancel protocol; queued/running is not applied; inspect completed result.edit_applied before continuing or undoing; never resubmit the original edit with a new request_id'
@@ -199,6 +199,8 @@ def helper_contracts():
         result[name]['unsupported']='Local child regions use transform; these helpers do not accept child-region IDs.'
     result['create_guard']['geometry']='Exactly one of bounds_um (rectangular main path), uids (enclose direct objects), or points_um (open horizontal/vertical main path). All UI native templates and validated recipes are discoverable in inspect_region(kind=rules).guard_templates.'
     result['create_guard']['execution']='Submit alone; native private-preview job with status/cancel. Actual generated outer material must fit the claimed region and existing routing policy. No source-cell write or weakened source/dependency checks.'
+    result['create_pour']['geometry']='Rectangular bounds on one writable metal drawing LPP. Explicit targets are direct shapes/vias only; all other same-layer metal and routing-policy obstacles are avoided by clearance plus grid-rounding guard. Known conflicting target nets are rejected. With targets, disconnected islands are discarded; without targets, all islands remain.'
+    result['create_pour']['execution']='Submit alone as an asynchronous atomic edit. The result contains ordinary editable polygon UIDs and one undo step. At most 512 polygons; holed regions may be triangulated for native synchronization. Geometry clearance is not DRC/LVS sign-off; run local and server checks.'
     result['create_multilayer_path']['layers_semantics']='每段一个层名：len(layers)=len(points)-1。省略才使用已配置的水平/竖直首选层。'
     result['create_multilayer_path']['via_policy']='使用原生标准金属孔的固定尺寸并检查已配置的本地规则；缺少某个规则项不等于过孔不存在，已知尺寸/包围错误仍拒绝。原子生成仍核对完整连通、网络冲突、区域范围和本地 DRC。'
     result['create_multilayer_path']['landing']='每级至少两切孔（或工艺偏好要求的更多孔）；landing_size_um 是整个方形搜索窗口边长，不是单孔尺寸。建议省略以按原生尺寸自动选取；空间不足、接错网或 DRC 失败仍整次回滚。'

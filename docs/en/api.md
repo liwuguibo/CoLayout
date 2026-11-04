@@ -43,6 +43,8 @@ The process editor's drawing/layers page has an unchecked-by-default “允许 A
 
 edit_region tighten_region/tighten_child_region share the human tightening implementation. Around contents and direct-child PIN extents, each axis reserves half the largest own/direct-child PIN dimension plus 10% (at least one manufacturing grid step), rounded outward. padding_um adds extra clearance; pin_clearance_um reports the automatic margin. Tightening only shrinks within the original frame, preserves native geometry and PIN mode, and adds no insufficient-margin warning for an already tight frame.
 
+The edit_region create_pour helper fills rectangular bounds_um on one writable metal drawing LPP; net_intent and clearance are required. Optional targets explicitly name direct shapes/vias to connect. Every other same-layer object and all routing-policy obstacles are avoided, and a known conflicting target net is rejected. With targets, disconnected islands are removed; without targets, all islands remain. Clearance includes a manufacturing-grid rounding guard. Holed regions may become multiple ordinary polygons, capped at 512 per call. Submit it alone as an asynchronous atomic edit; all created UIDs share one undo step. Geometric clearance is not DRC/LVS sign-off, so run both local and server checks afterward.
+
 ## Identity, revision and jobs
 
 Claim first, retain the returned session token and use a separate client identity for each parallel worker. Inspect before editing; send expected_revision and actual object IDs. Global revisions are not a license to overwrite a scoped stale input.

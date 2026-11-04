@@ -132,6 +132,15 @@ class AutoVias(Parameters):
     array_direction: Literal['any','horizontal','vertical'] = 'any'
 
 
+class Pour(Parameters):
+    bounds_um: tuple[float, float, float, float]
+    lpp: tuple[str, str]
+    net_intent: str = Field(min_length=1)
+    clearance: float = Field(gt=0)
+    targets: list[str] | None = Field(default=None, min_length=1, max_length=128,
+        description='Explicit direct-shape UIDs to connect. All other same-layer metal is avoided; disconnected islands are removed when targets are provided.')
+
+
 class MultilayerPath(Parameters):
     points: list[tuple[float, float]] = Field(min_length=2, max_length=64)
     net_intent: str = Field(min_length=1)
@@ -162,5 +171,6 @@ MODELS = {
     'create_guard': Guard,
     'create_auto_vias': AutoVias,
     'create_multilayer_path': MultilayerPath,
+    'create_pour': Pour,
 }
-SLOW_ACTIONS = {'create_guard', 'create_auto_vias', 'create_multilayer_path'}
+SLOW_ACTIONS = {'create_guard', 'create_auto_vias', 'create_multilayer_path', 'create_pour'}
