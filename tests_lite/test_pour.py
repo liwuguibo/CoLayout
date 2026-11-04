@@ -48,6 +48,14 @@ def geometry(editor, uids):
     return unary_union([Polygon(objects[uid].shape.points) for uid in uids])
 
 
+def assert_orthogonal(editor, uids):
+    objects = projected(editor.w)
+    for uid in uids:
+        points = objects[uid].shape.points
+        assert len(points) >= 3
+        assert all(a[0] == b[0] or a[1] == b[1] for a, b in zip(points, points[1:] + points[:1]))
+
+
 def test_empty_pour_is_one_net_polygon_and_one_undo(editor):
     before = editor.w
     result = pour(editor)
@@ -78,16 +86,38 @@ def test_only_explicit_target_is_connected_and_other_islands_are_removed(editor)
     assert obstacle in projected(editor.w)
 
 
-def test_holed_obstacle_produces_syncable_simple_polygons_with_clearance(editor):
+def test_holed_obstacle_produces_syncable_orthogonal_polygons_with_clearance(editor):
     editor.create(Shape(kind='rect', lpp=('wire_a', 'drawing'), bbox=((8000, 8000), (12000, 12000)), net_intent='VDD'))
     result = pour(editor)
     assert result['polygon_count'] > 1
-    assert result['triangulated_polygon_count'] == result['polygon_count']
+    assert result['rectangle_slice_count'] >= result['polygon_count']
+    assert result['orthogonal'] is True
     copper = geometry(editor, result['created_uids'])
     assert copper.area / editor.profile.dbu_per_micron**2 == pytest.approx(result['area_um2'])
     assert copper.distance(box(8000, 8000, 12000, 12000)) >= 2000 - 1e-6
     expected = box(0, 0, 20000, 20000).difference(box(8000, 8000, 12000, 12000).buffer(2000 + 2**0.5, join_style='mitre'))
     assert copper.equals(set_precision(expected, grid_size=editor.profile.grid, mode='valid_output'))
+    assert_orthogonal(editor, result['created_uids'])
+
+
+def test_l_shaped_pour_is_merged_into_one_concave_polygon(editor):
+    editor.create(Shape(kind='rect', lpp=('wire_a', 'drawing'), bbox=((10000, 10000), (20000, 20000)), net_intent='VDD'))
+    result = pour(editor)
+    assert result['polygon_count'] == 1
+    assert result['rectangle_slice_count'] > 1
+    shape = projected(editor.w)[result['created_uids'][0]].shape
+    assert len(shape.points) == 6
+    assert_orthogonal(editor, result['created_uids'])
+
+
+def test_u_shaped_pour_is_merged_into_one_concave_polygon(editor):
+    editor.create(Shape(kind='rect', lpp=('wire_a', 'drawing'), bbox=((8000, 12000), (12000, 20000)), net_intent='VDD'))
+    result = pour(editor)
+    assert result['polygon_count'] == 1
+    assert result['rectangle_slice_count'] > 1
+    shape = projected(editor.w)[result['created_uids'][0]].shape
+    assert len(shape.points) == 8
+    assert_orthogonal(editor, result['created_uids'])
 
 
 def test_diagonal_obstacle_remains_on_grid_without_rounding_away_clearance(editor):
@@ -97,6 +127,7 @@ def test_diagonal_obstacle_remains_on_grid_without_rounding_away_clearance(edito
     obstacle = Polygon(((10000, 6000), (14000, 10000), (10000, 14000), (6000, 10000)))
     assert copper.distance(obstacle) >= 2000 - 1e-6
     assert all(v % editor.profile.grid == 0 for uid in result['created_uids'] for point in projected(editor.w)[uid].shape.points for v in point)
+    assert_orthogonal(editor, result['created_uids'])
 
 
 def test_conflicting_target_and_missing_target_layer_are_atomic(editor):
@@ -194,6 +225,7 @@ def test_qt_button_and_canvas_drag_generate_pour(editor):
 
     from colayout_lite.presentation.canvas import Canvas
     from colayout_lite.pour_panel import show
+    from colayout_lite.rectangle_panel import show as show_rectangle
 
     class Selection:
         def __init__(self):
@@ -231,8 +263,13 @@ def test_qt_button_and_canvas_drag_generate_pour(editor):
     window.resize(900, 700)
     window.show()
     try:
+        show_rectangle(window)
         show(window)
         panel = window.pour_panel
+        rectangle_panel = window.rectangle_panel
+        assert [rectangle_panel.layers.itemText(i) for i in range(rectangle_panel.layers.count())] == [panel.layers.itemText(i) for i in range(panel.layers.count())]
+        assert [rectangle_panel.layers.itemData(i) for i in range(rectangle_panel.layers.count())] == [panel.layers.itemData(i) for i in range(panel.layers.count())]
+        assert rectangle_panel.layers.currentData() == panel.layers.currentData()
         QTest.keyClicks(panel.net, 'VSS')
         QTest.mouseClick(panel.draw, Qt.MouseButton.LeftButton)
         app.processEvents()
@@ -255,4 +292,38 @@ def test_qt_button_and_canvas_drag_generate_pour(editor):
         assert editor.w.operations == before.operations
     finally:
         window.close()
+        app.processEvents()
+
+
+def test_rectangle_toolbar_menu_contains_parallel_rectangle_and_pour_actions():
+    from types import MethodType, SimpleNamespace
+
+    from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QApplication, QToolBar, QToolButton
+
+    from colayout_lite.studio_shell import StudioShell
+
+    app = QApplication.instance() or QApplication([])
+    toolbar = QToolBar()
+    rectangle = QAction('矩形')
+    pour_action = QAction('铺铜')
+    shell = SimpleNamespace(
+        toolbar=toolbar,
+        menus={},
+        action_buttons={},
+        commands=SimpleNamespace(actions={'rectangle': rectangle, 'pour': pour_action}),
+    )
+    shell.menu_button = MethodType(StudioShell.menu_button, shell)
+    shell.add_actions = MethodType(StudioShell.add_actions, shell)
+    menu = StudioShell.rectangle_menu(shell)
+    button = menu.parentWidget()
+    try:
+        assert menu.objectName() == 'compactMenu_rectangle'
+        assert menu.actions() == [rectangle, pour_action]
+        assert button.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
+        assert shell.action_buttons['rectangle'] == [button]
+        assert shell.action_buttons['pour'] == [button]
+    finally:
+        menu.hide()
+        toolbar.close()
         app.processEvents()

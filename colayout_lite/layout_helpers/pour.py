@@ -2,7 +2,7 @@
 
 from math import sqrt
 
-from shapely import constrained_delaunay_triangles, set_precision
+from shapely import set_precision
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 
@@ -23,10 +23,30 @@ def _polygons(geometry):
         return []
     if geometry.geom_type == 'Polygon':
         return [geometry] if geometry.area > 1e-9 else []
+    if not hasattr(geometry, 'geoms'):
+        return []
     return [part for child in geometry.geoms for part in _polygons(child)]
 
 
+def _orthogonal(geometry):
+    for polygon in _polygons(geometry):
+        for ring in (polygon.exterior, *polygon.interiors):
+            if any(
+                abs(a[0] - b[0]) > 1e-6 and abs(a[1] - b[1]) > 1e-6
+                for a, b in zip(ring.coords, ring.coords[1:])
+            ):
+                return False
+    return True
+
+
+def _orthogonal_cover(geometry):
+    covered = [polygon if _orthogonal(polygon) else box(*polygon.bounds) for polygon in _polygons(geometry)]
+    return unary_union(covered) if covered else geometry
+
+
 def _points(polygon, grid):
+    if polygon.interiors or not _orthogonal(polygon):
+        raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜输出必须是只含水平/垂直边的无孔多边形。')
     points = []
     for x, y in polygon.exterior.coords[:-1]:
         point = (round(x), round(y))
@@ -38,19 +58,79 @@ def _points(polygon, grid):
             points.append(point)
     if len(points) > 1 and points[0] == points[-1]:
         points.pop()
+    while len(points) >= 3:
+        simplified = []
+        for index, point in enumerate(points):
+            before = points[index - 1]
+            after = points[(index + 1) % len(points)]
+            if (point[0] - before[0]) * (after[1] - point[1]) != (point[1] - before[1]) * (after[0] - point[0]):
+                simplified.append(point)
+        if len(simplified) == len(points):
+            break
+        points = simplified
+    edges = zip(points, points[1:] + points[:1])
+    if any(a[0] != b[0] and a[1] != b[1] for a, b in edges):
+        raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜输出不得包含斜边。')
     return tuple(points)
+
+
+def _rectangle_slices(component, grid):
+    xs = sorted({
+        round(x)
+        for ring in (component.exterior, *component.interiors)
+        for x, _ in ring.coords
+    })
+    min_y, max_y = component.bounds[1], component.bounds[3]
+    rectangles = []
+    for left, right in zip(xs, xs[1:]):
+        if left == right:
+            continue
+        clipped = component.intersection(box(left, min_y - grid, right, max_y + grid))
+        for part in _polygons(clipped):
+            bounds = part.bounds
+            rectangle = box(*bounds)
+            if not part.equals(rectangle) or not _orthogonal(rectangle):
+                raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜垂直切片未能形成矩形。')
+            rectangles.append(rectangle)
+    if len(rectangles) > 2048:
+        raise LiteError('POUR_TOO_COMPLEX', '铺铜中间切片超过 2048 个，请缩小范围或分区铺铜。')
+    return rectangles
+
+
+def _merge_rectangles(rectangles):
+    pieces = list(rectangles)
+    merged = True
+    while merged:
+        merged = False
+        for index, first in enumerate(pieces):
+            for other in range(index + 1, len(pieces)):
+                second = pieces[other]
+                if first.boundary.intersection(second.boundary).length <= 1e-6:
+                    continue
+                combined = first.union(second)
+                if combined.geom_type != 'Polygon' or combined.interiors or not _orthogonal(combined):
+                    continue
+                pieces[index] = combined
+                del pieces[other]
+                merged = True
+                break
+            if merged:
+                break
+    return pieces
 
 
 def _pour_pieces(geometry, grid):
     pieces = []
-    triangulated = 0
+    slice_count = 0
     for component in _polygons(geometry):
-        if component.interiors:
-            triangles = _polygons(constrained_delaunay_triangles(component))
-            pieces.extend(triangles)
-            triangulated += len(triangles)
-        else:
-            pieces.append(component)
+        if not _orthogonal(component):
+            raise LiteError('POUR_NON_ORTHOGONAL_RESULT', '铺铜计算结果包含非正交边。')
+        rectangles = _rectangle_slices(component, grid)
+        merged = _merge_rectangles(rectangles)
+        if abs(sum(piece.area for piece in merged) - component.area) > 1e-4:
+            raise LiteError('POUR_GEOMETRY_INVALID', '铺铜切片合并后面积不一致。')
+        pieces.extend(merged)
+        slice_count += len(rectangles)
     if len(pieces) > MAX_POLYGONS:
         raise LiteError(
             'POUR_TOO_COMPLEX',
@@ -58,7 +138,7 @@ def _pour_pieces(geometry, grid):
             polygon_count=len(pieces),
             limit=MAX_POLYGONS,
         )
-    return pieces, triangulated
+    return pieces, slice_count
 
 
 def create(editor, args, rules=None, *, cancelled=None):
@@ -123,7 +203,7 @@ def create(editor, args, rules=None, *, cancelled=None):
     if missing:
         raise LiteError('POUR_GEOMETRY_INCOMPLETE', '原生黑盒缺少边界，不能安全铺铜。', uids=missing)
     foreign = [row.geometry for row in physical if row.layer == args.lpp[0] and row.owner not in targets]
-    obstacles = foreign + [row[1] for row in policy_rows]
+    obstacles = [_orthogonal_cover(geometry) for geometry in foreign + [row[1] for row in policy_rows]]
     target_geometry = unary_union([row.geometry for row in target_rows]) if target_rows else None
     grid_guard = sqrt(0.5) * profile.grid
     fill = None
@@ -152,7 +232,7 @@ def create(editor, args, rules=None, *, cancelled=None):
         if not connected:
             raise LiteError('POUR_NO_CONNECTED_AREA', '铺铜范围无法与任何指定目标形成有面积的同层连接。')
         fill = unary_union(connected)
-    pieces, triangulated = _pour_pieces(fill, profile.grid)
+    pieces, slice_count = _pour_pieces(fill, profile.grid)
     operations = []
     try:
         for piece in pieces:
@@ -172,7 +252,8 @@ def create(editor, args, rules=None, *, cancelled=None):
     return {
         'created_uids': created,
         'polygon_count': len(created),
-        'triangulated_polygon_count': triangulated,
+        'rectangle_slice_count': slice_count,
+        'orthogonal': True,
         'area_um2': fill.area / profile.dbu_per_micron**2,
         'clearance_um': clearance / profile.dbu_per_micron,
         'grid_guard_um': grid_guard / profile.dbu_per_micron,

@@ -58,6 +58,13 @@ class StudioShell(QObject):
         action=QAction(label,self);action.setCheckable(True);action.setChecked(source.isChecked())
         action.toggled.connect(source.setChecked);source.toggled.connect(action.setChecked);menu.addAction(action);return action
 
+    def rectangle_menu(self):
+        menu=self.menu_button('矩形','rectangle')
+        self.add_actions(menu,('rectangle','pour'))
+        button=menu.parentWidget()
+        for key in ('rectangle','pour'):self.action_buttons.setdefault(key,[]).append(button)
+        return menu
+
     def build_toolbar(self):
         self.toolbar=QToolBar();self.toolbar.setObjectName('compactToolbar');self.toolbar.setMovable(False)
         self.toolbar.setIconSize(QSize(16,16));self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -81,7 +88,8 @@ class StudioShell(QObject):
             action.triggered.connect(lambda checked=False,index=i:self.set_peek(index));self.peek_actions.append(action)
         check=self.menu_button('检查','check');self.add_actions(check,('region_drc_local','region_drc_remote',None,'clear_net',None,'circuit','activity'))
         self.toolbar.addSeparator()
-        for key in ('region','markup','keepout','rectangle','pour','guard'):self.toolbar_action(key)
+        for key in ('region','markup','keepout'):self.toolbar_action(key)
+        self.rectangle_menu();self.toolbar_action('guard')
         self.toolbar.addSeparator()
         for key in ('undo','redo'):self.toolbar_action(key,icon_only=True)
         self.toolbar_action('copy_id');self.toolbar.addSeparator()

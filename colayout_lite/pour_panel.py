@@ -1,9 +1,10 @@
 """Canvas metal-pour creation through the shared layout-helper service."""
 
-from PySide6.QtCore import Qt, QSignalBlocker
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from .drawing_mode import cancel_drawing
+from .layer_choices import populate_layers
 from .model import LiteError
 from .regions.actions import RegionActions
 
@@ -71,17 +72,7 @@ class PourPanel(QWidget):
         if self._profile is not editor.profile:
             old = self.layers.currentData()
             self._profile = editor.profile
-            with QSignalBlocker(self.layers):
-                self.layers.clear()
-                for layer, purpose in editor.profile.writable_lpps:
-                    if purpose == 'drawing' and any(
-                        row['layer'] == layer and row.get('material') == 'metal'
-                        for row in editor.profile.layers
-                    ):
-                        self.layers.addItem(layer + ' / ' + purpose, (layer, purpose))
-                index = self.layers.findData(old or editor.profile.editor_defaults.get('layer'))
-                if index >= 0:
-                    self.layers.setCurrentIndex(index)
+            populate_layers(self.layers, editor.profile, old, metal_only=True)
             self.update_clearance()
         if not self.context:
             ids = window.human.ids()

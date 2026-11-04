@@ -1,7 +1,8 @@
 """Mouse rectangle creation via the existing Actions/Editor contract."""
-from PySide6.QtCore import Qt,QSignalBlocker
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QLabel,QComboBox,QPushButton,QDockWidget
 from .drawing_mode import cancel_drawing
+from .layer_choices import populate_layers
 from .regions.actions import RegionActions
 from .model import LiteError
 
@@ -22,11 +23,7 @@ class RectanglePanel(QWidget):
         if self.context and (e is not self.context[0] or e.w is not self.context[1] or e.scope_id!=self.context[2]):self.cancel_draw()
         if self._profile is not e.profile:
             old=self.layers.currentData();self._profile=e.profile
-            with QSignalBlocker(self.layers):
-                self.layers.clear()
-                for layer,purpose in e.profile.writable_lpps:self.layers.addItem(layer+' / '+purpose,(layer,purpose))
-                index=self.layers.findData(old or e.profile.editor_defaults.get('layer'))
-                if index>=0:self.layers.setCurrentIndex(index)
+            populate_layers(self.layers,e.profile,old)
         enabled=bool(not w.busy and e.w.state not in ('submitting','indeterminate','conflict') and not e.work_sessions.readonly_reason() and self.layers.count())
         self.draw.setEnabled(enabled);self.layers.setEnabled(enabled)
 
