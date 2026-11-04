@@ -30,4 +30,4 @@
 - 两个分支均通过 Ruff、客户端 schema、文档链接和发布/隐私审计。
 - Linux 固定 Bridge 依赖来源、归档校验和许可证检查通过。
 - `alpha` 的真实显示服务器 Qt 拖框测试通过。
-- 干净安装检查尚未完成：执行环境缺少 `uv`。没有使用其他安装器或未验证镜像替代。
+- 使用 `uv 0.13.7` 和固定 Bridge 归档完成独立干净安装，`check_environment.py` 通过；`smoke_onboarding` 与 `smoke_layout_client` 均通过。smoke 使用合成几何和真实 APP/HTTP，不包含 SSH、服务器 DRC 或真实 PDK。
