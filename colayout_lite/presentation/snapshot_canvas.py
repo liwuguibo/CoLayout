@@ -35,7 +35,8 @@ class SnapshotCanvas(QWidget):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setFont(QFont('Microsoft YaHei UI', 9))
+        from ..fonts import ui_font
+        self.setFont(ui_font(9))
         apply_window_theme(self)
         self.editor = SceneState(workspace, profile, region_id)
         self.pattern = self.cuts = self.internal = DisplayOption()

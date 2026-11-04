@@ -46,7 +46,9 @@ def create(folder,*,update=False,offline=False):
         if target.exists() and content_hash(target.read_bytes()) not in (old.get(name),content_hash(content)):
             preserved.append(name);continue
         target.parent.mkdir(parents=True,exist_ok=True)
-        target.write_bytes(content);managed[name]=content_hash(content)
+        target.write_bytes(content)
+        if name.endswith('.sh'):target.chmod(target.stat().st_mode | 0o111)
+        managed[name]=content_hash(content)
     for name in ('runtime','outputs','requests','workspaces','feedback'):(folder/name).mkdir(exist_ok=True)
     write_json_atomic(folder/'installation.json',{'schema_version':'colayout-customer-runtime-1',
         'python_executable':config['python_executable'],'connection_mode':'local-descriptor'})

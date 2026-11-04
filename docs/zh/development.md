@@ -4,7 +4,7 @@
 
 ## 环境与入口
 
-使用 Windows 和仓库自己的 Python 3.13 虚拟环境。执行 setup.ps1 后运行：
+Windows 和 Linux 都使用仓库自己的 Python 3.13 虚拟环境。Windows 执行 setup.ps1 后运行：
 
 ```powershell
 .\.venv\Scripts\python.exe tools/check_environment.py
@@ -13,7 +13,16 @@
 .\.venv\Scripts\python.exe -m tools.build_customer_api_kit --check
 ```
 
-Start-CoLayout.cmd 委托 tools/project.ps1 启动。源码采用 editable 安装；有风险的实验使用独立 checkout 和运行目录，不能让测试安装指向用户的可写工作区或当前原生目标。
+Linux 执行 setup.sh 后运行：
+
+```bash
+.venv/bin/python tools/check_environment.py
+.venv/bin/ruff check colayout_lite tools
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_lite -q
+.venv/bin/python -m tools.build_customer_api_kit --check
+```
+
+Windows 的 Start-CoLayout.cmd 委托 tools/project.ps1，Linux 的 Start-CoLayout.sh 委托 tools/project.sh。源码采用 editable 安装；有风险的实验使用独立 checkout 和运行目录，不能让测试安装指向用户的可写工作区或当前原生目标。
 
 公开测试使用合成几何与模拟回执，不要求 PDK，也不连接服务器。它们不证明所有工艺或商业工具版本都通过。工艺专项验证使用用户样例与已授权的私有副本。
 
@@ -23,12 +32,12 @@ Start-CoLayout.cmd 委托 tools/project.ps1 启动。源码采用 editable 安�
 2. 保持单位、对象 ID、权限和事务语义。
 3. 物理、权限、异步结果采用和事务变更增加行为回归。简单文字或样式修改做适当显示检查，不编写只复述实现的测试。
 4. 迭代时跑专项，集成前跑完整公开回归。
-5. GUI 修改需实际 Qt 交互和 Windows pythonw 验证。仅成功导入或离屏截图不能证明任务栏身份、模态窗口生命周期正确。
+5. GUI 修改需当前桌面的实际 Qt 交互验证，Windows 还要用 pythonw 验证。仅成功导入或离屏截图不能证明任务栏/桌面身份、模态窗口生命周期正确。
 6. API 契约变更后重新生成 SDK/schema，核对模板一致，并更新维护文档。
 
 后台测试使用带截止时间的 QEventLoop，不用阻塞 Qt 的 sleep。既要断言成功结果，也要检查失败时保留的状态。
 
-客户端验收可用项目 Python 执行 `tools/smoke_layout_client.py --out <新目录>`，Windows 也用 pythonw 验证。它创建独立合成 APP/文档，通过生成目录的 python.cmd 和真实 HTTP 测试发现、接入、兄弟区编辑、画线/过孔、网络查询、自有撤销、本地检查、截图、存档与交接，并验证越区编辑及未验收完成会被拒绝。它不使用真实 PDK 或服务器 DRC。输出保留用于排错，已有输出目录拒绝覆盖。
+客户端验收可用项目 Python 执行 `tools/smoke_layout_client.py --out <新目录>`，Windows 也用 pythonw 验证。它创建独立合成 APP/文档，通过生成目录的 python.cmd（Linux 为 python.sh）和真实 HTTP 测试发现、接入、兄弟区编辑、画线/过孔、网络查询、自有撤销、本地检查、截图、存档与交接，并验证越区编辑及未验收完成会被拒绝。它不使用真实 PDK 或服务器 DRC。输出保留用于排错，已有输出目录拒绝覆盖。
 
 ## 排错入口
 
@@ -47,7 +56,7 @@ Start-CoLayout.cmd 委托 tools/project.ps1 启动。源码采用 editable 安�
 
 ## 准备隔离的开发安装
 
-1. 在新的 checkout 运行 setup.ps1，由它生成自己的 .venv、.colayout、config 下的运行配置和 artifacts。不要从正式安装复制这些运行目录、工作区历史或 pending；仓库自带的配置示例正常保留。
+1. 在新的 checkout 运行 setup.ps1（Windows）或 setup.sh（Linux），由它生成自己的 .venv、.colayout、config 下的运行配置和 artifacts。不要从正式安装复制这些运行目录、工作区历史或 pending；仓库自带的配置示例正常保留。
 2. 先运行 tools/check_environment.py；读取本 checkout 的 .colayout/installation.json，核对 app_root、python_executable、document、test_kit 和 workspace_archive_root。客户端通常是 checkout 旁的独立目录，不是应用源码目录。
 3. 离线验证优先使用公开 pytest 或 smoke_layout_client.py --out <新目录>；空白初始化验证用 smoke_onboarding.py。它们的适用范围见本页，不要拿正式文档作为 smoke 输入。
 4. 需要原生验证时，另按初始化手册核对连接，并明确使用已授权测试副本。将核实过的连接目标导入项目独立 Bridge 配置/状态；复用服务器 daemon/会话，不沿用另一安装的 VB_HOME。不会因此获得跨安装共享写锁，不能让两个安装同时写同一原生目标。
@@ -61,16 +70,16 @@ Start-CoLayout.cmd 委托 tools/project.ps1 启动。源码采用 editable 安�
 |---|---|
 | 仅文档/技能说明 | 文档链接、首页提示词和客户端生成一致性检查、git diff --check；无需为文字修改运行原生测试 |
 | 本地几何/权限/合并 | 先合成专项，再完整回归；验证失败不发布、兄弟区不被覆盖和撤销边界。涉及显示时补 GUI |
-| UI/后台生命周期 | 实际 Windows Qt 交互和 pythonw；离屏只证明部分控件/渲染行为，不能代替焦点、任务栏或窗口关闭验证 |
+| UI/后台生命周期 | 当前桌面的实际 Qt 交互，Windows 另含 pythonw；离屏只证明部分控件/渲染行为，不能代替焦点、任务栏/桌面身份或窗口关闭验证 |
 | API/客户端 | 契约/生成一致性、真实本机 HTTP/客户端验证；覆盖重启重连和未知请求，保留原 request_id、pending 与 APP 审计 |
 | 原生事务/协议 | 离线故障回归 + 授权副本往返/失败恢复；保留事务输入、回执、保存读回和对账结果 |
 | 工艺/检查格式 | 校验与序列化专项；影响原生生成或规则运行时用授权副本验证。区分结构通过、几何复现、区域 DRC 与签核 |
 
-仓库 CI 仍运行其已配置的检查。公开合成测试通过不表示每个 PDK、服务器规则或实际 GUI 场景均已验证；交付中记录实际做过的检查与尚未覆盖的部分。
+仓库 CI 仍运行其已配置的 Windows 和 Linux 检查。公开合成测试通过不表示每个 PDK、服务器规则或实际 GUI 场景均已验证；交付中记录实际做过的检查与尚未覆盖的部分。
 
 ## 依赖
 
-Bridge 固定源码版本并可重复应用补丁，升级前阅读[依赖来源](dependencies.md)。requirements 使用固定版本。setup.ps1 校验下载归档和补丁后的源码，不自动拉取上游 main。
+Bridge 固定源码版本并可重复应用补丁，升级前阅读[依赖来源](dependencies.md)。requirements 使用固定版本。setup.ps1 和 setup.sh 校验下载归档和补丁后的源码，不自动拉取上游 main。
 
 Qt 仅安装 PySide6_Essentials，不安装未使用的 Addons。添加模块前检查其许可证。源码发布不包含 Qt 安装包、PDK 或 EDA 程序；二进制打包需要另做依赖、对应源码和许可审核。
 

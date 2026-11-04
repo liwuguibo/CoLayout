@@ -27,7 +27,7 @@ git log -5 --oneline
 .\.venv\Scripts\python.exe -m colayout_lite.bootstrap status
 ~~~
 
-Missing .venv on a new checkout means run setup.ps1. A refused status call means the APP is not reachable; it does not prove document corruption. Follow the [setup runbook](agent-setup.md). Keep an existing dirty tree and user configuration intact.
+Missing .venv on a new checkout means run setup.ps1 on Windows or setup.sh on Linux; substitute `.venv/bin/python` in the commands above on Linux. A refused status call means the APP is not reachable; it does not prove document corruption. Follow the [setup runbook](agent-setup.md). Keep an existing dirty tree and user configuration intact.
 
 Read .colayout/installation.json locally. It records the actual document, interpreter, source and current client folder. The field test_kit is the current layout-client directory; retain its schema name. Do not infer the active document from a desktop JSON archive or a remembered directory.
 

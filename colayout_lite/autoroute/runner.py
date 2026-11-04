@@ -39,16 +39,14 @@ def run(argv,output,log,cancel,timeout,*,cwd=ROOT):
                     raise LiteError('PLUGIN_OUTPUT_TOO_LARGE')
                 cancel.wait(.04)
         finally:
-            # The Popen PID can be only the venv launcher. The host job owns
-            # the actual worker and descendants, even if that launcher exits.
+            # The Popen PID can be only the venv launcher. The host-owned job
+            # or process group also covers descendants if that launcher exits.
             if job:job.close(terminate=True)
-            if process.poll() is None:
-                if os.name=='nt':process.terminate()
-                else:
-                    import signal
-                    os.killpg(process.pid,signal.SIGTERM)
-                try:process.wait(timeout=2)
-                except subprocess.TimeoutExpired:process.kill();process.wait()
+            if os.name=='nt':
+                if process.poll() is None:process.terminate()
+            else:
+                from ..process_group import terminate
+                terminate(process)
     if cancel.is_set():raise LiteError('ROUTING_CANCELLED')
     if not output.exists():raise LiteError('ROUTING_PROCESS_FAILED','未生成结果。',exit_code=process.returncode,log=str(log))
     if output.stat().st_size>16*1024*1024:raise LiteError('PLUGIN_OUTPUT_TOO_LARGE')

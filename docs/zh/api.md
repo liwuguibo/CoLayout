@@ -55,7 +55,7 @@ edit_region 的 tighten_region/tighten_child_region 与人端“收紧操作区�
 
 tools/create_layout_agent.py 仅复制执行模板、说明及生成的 SDK/schema，不复制另一个 Agent 的任务、身份或 pending。更新已有托管文件前核对哈希。目录权限由外部 Agent 宿主执行，说明文件不是安全沙箱。
 
-修改 agent_tools/contract.py 后运行：
+修改 agent_tools/contract.py 后运行（Linux 将解释器替换为 `.venv/bin/python`）：
 
 ```powershell
 .\.venv\Scripts\python.exe -m tools.build_customer_api_kit

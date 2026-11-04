@@ -1,4 +1,4 @@
-name: Windows source checks
+name: Cross-platform source checks
 on: [push, pull_request]
 permissions:
   contents: read
@@ -46,3 +46,32 @@ jobs:
         run: |
           .\.venv\Scripts\python.exe tools/smoke_layout_client.py --out .colayout/layout-client-smoke
           exit $LASTEXITCODE
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: Install Linux UI prerequisites
+        run: sudo apt-get update && sudo apt-get install -y fontconfig fonts-noto-cjk libegl1 libxkbcommon0
+      - name: Install pinned source dependencies
+        run: ./setup.sh
+      - name: Static and source checks
+        run: |
+          .venv/bin/ruff check colayout_lite tools
+          .venv/bin/python -m tools.build_customer_api_kit --check
+          .venv/bin/python tools/check_docs.py
+          .venv/bin/python tools/check_dependencies.py
+          .venv/bin/python tools/audit_release.py
+      - name: Synthetic regression
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: .venv/bin/python -m pytest tests_lite -q
+      - name: Empty installation and client smoke
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: .venv/bin/python tools/smoke_onboarding.py --out .colayout/smoke-linux
+      - name: Layout client editing and isolation
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: .venv/bin/python tools/smoke_layout_client.py --out .colayout/layout-client-smoke-linux

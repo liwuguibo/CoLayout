@@ -6,7 +6,7 @@ This complements the [architecture](architecture.md) with actual call chains and
 
 ## 1. Boot, ownership and shutdown
 
-[tools/project.ps1](../../tools/project.ps1) reads .colayout/installation.json and launches pythonw -m colayout_lite.workspace_app with the document, --installation and --agent-api. It detects an existing process for that pointer; the document lock remains the final writer guard.
+On Windows, [tools/project.ps1](../../tools/project.ps1) uses pythonw; on Linux, `tools/project.sh` uses `.venv/bin/python`. Both read .colayout/installation.json and launch `-m colayout_lite.workspace_app` with the document, --installation and --agent-api, detecting an existing process for that pointer. The document lock remains the final writer guard. Linux workers use separate process groups and Windows uses Job Objects so close/cancellation covers descendants.
 
 [workspace_app.main / WorkspaceWindow](../../colayout_lite/workspace_app.py) installs diagnostics, constructs QApplication and StudioWindow, restores the internal document and pending native state, then enables AgentHub. [StudioWindow](../../colayout_lite/studio_window.py) composes the shell around WorkspaceWindow; [ui.Window](../../colayout_lite/ui.py) is the shared canvas/controller base, not the recommended standalone user entry.
 
@@ -106,6 +106,8 @@ MPP subpart enumeration may reorder after reopening a native session. Sync preco
 
 [NativeTransport](../../colayout_lite/transport.py) connects during construction, lazily loads NATIVE_SCRIPTS and encodes data rather than arbitrary code. Native SKILL files under colayout_lite/skill are CoLayout's protocol implementation; the upstream Python dependency is separately installed. Modify both protocol ends and failure tests together. Keep wire versions, receipt shapes and UID checks compatible.
 
+Paired import permits one explicit unbound case: a native boolean `lxDummy` property is true, the instance has no children, and its nonempty terminals and members all belong to one nonempty native net. `circuit.codec` retains its geometry, UID, properties, terminals and physical nets without inventing a schematic instance or binding. Names, ignore flags and display signal aliases do not establish this exception. Signal-driven dummies, ordinary unbound devices, missing terminal nets and broken binding paths remain rejected; native correspondence and source-stability checks must still pass. Workspace and wire formats stay unchanged, and the reference binding list need not cover these confirmed dummies. [test_native_dummy_import.py](../../tests_lite/test_native_dummy_import.py) covers import, archive restoration, refresh and state preservation on rejection.
+
 ## 6. Checks, filters and process review
 
 [RegionTasks](../../colayout_lite/agent_tools/region_tasks.py) creates scoped inputs. [drc/local.run](../../colayout_lite/drc/local.py) performs supported checks; geometry, scope, Poly, MIM and advisory modules remain separate. UI highlighting is not this physical checker.
@@ -138,7 +140,7 @@ Paths in the test column are under tests_lite. These are starting points, not cl
 | Guards and routing windows | [test_mpp_sample_choppability.py](../../tests_lite/test_mpp_sample_choppability.py), [test_guard_ports.py](../../tests_lite/test_guard_ports.py), [test_native_routing_window_router.py](../../tests_lite/test_native_routing_window_router.py) |
 | Via helpers / routing | [test_auto_vias.py](../../tests_lite/test_auto_vias.py), [test_via_landing_intent.py](../../tests_lite/test_via_landing_intent.py), [test_layout_helpers.py](../../tests_lite/test_layout_helpers.py), [test_routes.py](../../tests_lite/test_routes.py) |
 | Server jobs / parser storage | [test_drc_jobs.py](../../tests_lite/test_drc_jobs.py), [test_drc_job_storage.py](../../tests_lite/test_drc_job_storage.py), [test_drc_hierarchy_scope.py](../../tests_lite/test_drc_hierarchy_scope.py); add parser-specific fixtures for changed report grammar |
-| Setup and clients | [test_bootstrap_portability.py](../../tests_lite/test_bootstrap_portability.py), [test_release_boundary.py](../../tests_lite/test_release_boundary.py), [test_client_parallel_replay.py](../../tests_lite/test_client_parallel_replay.py), [test_customer_cli_uid.py](../../tests_lite/test_customer_cli_uid.py) |
+| Setup and clients | [test_bootstrap_portability.py](../../tests_lite/test_bootstrap_portability.py), [test_release_boundary.py](../../tests_lite/test_release_boundary.py), [test_client_parallel_replay.py](../../tests_lite/test_client_parallel_replay.py), [test_customer_cli_uid.py](../../tests_lite/test_customer_cli_uid.py), `tests_lite/test_linux_portability.py` |
 | PDK collection / configuration | [test_process_setup.py](../../tests_lite/test_process_setup.py), [test_onboarding.py](../../tests_lite/test_onboarding.py); add review/export tests for changed schema |
 | GUI/render | [test_translation_cache.py](../../tests_lite/test_translation_cache.py), [test_compact_contrast.py](../../tests_lite/test_compact_contrast.py), [test_gui_streams.py](../../tests_lite/test_gui_streams.py); real Qt/pythonw and representative scenes still required |
 

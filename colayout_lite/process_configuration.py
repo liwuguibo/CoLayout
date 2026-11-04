@@ -157,7 +157,7 @@ class ProcessConfiguration:
                 'configuration_key':data['profile'].get('configuration_id') or data['profile']['native_fingerprint'],
                 'created_at':data['created_at'],'review_digest':data['review_digest'],
                 'mim_confirmation_required':(data.get('package',{}).get('drc') or {}).get('mim_capacitor',{}).get('status','unconfigured')=='unconfigured',
-                'error':data.get('error'),'next_action':'Windows APP → 工艺库 → 待审核' if data['status']=='pending_review' else None}
+                'error':data.get('error'),'next_action':'CoLayout APP → 工艺库 → 待审核' if data['status']=='pending_review' else None}
 
     def reject(self,ident,expected_digest):
         path,data=self.proposal(ident)

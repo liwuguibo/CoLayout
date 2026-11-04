@@ -65,7 +65,7 @@ class StudioShell(QObject):
         self.toolbar.setMinimumHeight(40);self.toolbar.setMinimumWidth(0)
         brand=QLabel('CoLayout');brand.setObjectName('compactBrand');brand.setContentsMargins(10,0,10,0);self.toolbar.addWidget(brand)
         self.mode_badge=QLabel('离线试用');self.mode_badge.setObjectName('compactSyncBadge')
-        self.mode_badge.setToolTip('此窗口不使用远端通信。请通过“启动CoLayout工作区.cmd”打开正式工作区。')
+        self.mode_badge.setToolTip('此窗口不使用远端通信。请通过 CoLayout 工作区启动器打开正式工作区。')
         self.mode_badge_action=self.toolbar.addWidget(self.mode_badge)
         self.mode_badge_action.setVisible(not getattr(self.window,'remote_enabled',True))
         file=self.menu_button('文件','file')

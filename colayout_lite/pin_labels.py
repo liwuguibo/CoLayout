@@ -34,7 +34,8 @@ def render_pins(painter,tr,viewport,records,color_for,emphasized=lambda pin:Fals
     Presentation cannot change PIN identity, scope or the density thresholds.
     """
     plain=label_style=='plain'
-    font=QFont('Microsoft YaHei UI');font.setPixelSize(12);font.setBold(not plain)
+    from .fonts import ui_font
+    font=ui_font(pixel_size=12);font.setBold(not plain)
     strong_font=QFont(font);strong_font.setBold(True)
     painter.setFont(font);metrics=QFontMetricsF(font);strong_metrics=QFontMetricsF(strong_font);occupied=[];labels=[];hits=[]
     inverse,ok=tr.inverted();visible_world=inverse.mapRect(viewport) if ok else None

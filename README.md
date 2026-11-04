@@ -12,7 +12,7 @@
 
 ## 项目简介
 
-CoLayout 是面向人和 Agent 协作的轻量化 Windows 版图工作区，与 Cadence Virtuoso 配合使用。人划分本地操作区，版图 Agent 通过本机 HTTP API 编辑被分配的区域；工作区、权限、撤销、检查和显式同步都由 Windows APP 统一管理。
+CoLayout 是面向人和 Agent 协作的轻量化 Windows/Linux 版图工作区，与 Cadence Virtuoso 配合使用。人划分本地操作区，版图 Agent 通过本机 HTTP API 编辑被分配的区域；工作区、权限、撤销、检查和显式同步都由桌面 APP 统一管理。
 
 软件用于辅助版图工作，不代替完整 LVS 或工艺签核。Virtuoso、Calibre 和 PDK 由用户自行合法取得，本仓库不包含这些产品。
 
@@ -68,15 +68,26 @@ CoLayout 是面向人和 Agent 协作的轻量化 Windows 版图工作区，与 
 
 新开对话时可使用[初始化提示词模板](docs/zh/setup-prompt.md)，填写自己的目录、服务器和 SSH 用户名。
 
-准备 Windows、Git、[uv（官方英文安装说明）](https://docs.astral.sh/uv/getting-started/installation/)，以及可通过 SSH 访问、已安装合法 EDA 软件的 Linux 服务器。初始化 Agent 可以协助安装和诊断，但需要你提供服务器地址及必要的连接信息。
+准备 Windows 或 Linux 桌面、Git、[uv（官方英文安装说明）](https://docs.astral.sh/uv/getting-started/installation/)，以及可通过 SSH 访问、已安装合法 EDA 软件的 Linux 服务器。初始化 Agent 可以协助安装和诊断，但需要你提供服务器地址及必要的连接信息。
 
 1. 拉取仓库，让初始化 Agent 阅读 [AGENTS.md（供初始化 Agent 阅读，英文）](AGENTS.md)。
-2. 执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1`。
+2. Windows 执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1`；Linux 执行 `./setup.sh`。
 3. 按[安装说明](docs/zh/setup.md)配置、检查服务器连接并启动 APP。地址缺失、SSH 认证失败或存在多个 Virtuoso 窗口时，应先明确处理。
 4. 使用项目级 `colayout-pdk` skill 采集已保存的 Layout 样例。Agent 提交提案，人在 APP 中审核并启用。
 5. 使用 `colayout-layout-agent` skill 生成独立工作文件夹，再新开版图对话。
 
 仓库自带两项 CoLayout 技能；安装步骤另行下载固定版本的上游 Virtuoso skill，放入项目级技能目录。
+
+## Linux 桌面移植
+
+Linux 版本与 Windows 复用同一个 Qt 工作区、版图模型、Agent API 和显式同步链路，不维护另一套界面或数据语义。桌面适配包括 Linux 启动器、中文字体回退、应用图标与单实例识别、POSIX 客户端文件锁，以及可覆盖取消、超时和正常关闭的进程组管理；Windows 启动与原生窗口集成继续保留。
+
+- 安装：准备 Git、uv、Python 3.13 和 Qt 所需系统库后执行 `./setup.sh`，再用 `.venv/bin/python tools/check_environment.py` 检查环境。
+- 启动：执行 `./Start-CoLayout.sh`，或用 `./tools/project.sh start`；`./tools/project.sh status` 查看当前安装状态。重复启动会复用同一安装，不创建第二个工作区写者。
+- 客户端：生成的 Linux 客户端使用 `python.sh`，保留独立身份、pending 和归档语义。可选桌面入口由 `tools/install_workspace_shortcut.py` 生成，只写入当前用户目录。
+- 验证：CI 同时覆盖 Windows 和 Ubuntu。Linux 的安装、公开回归、真实 HTTP、进程生命周期和桌面验收步骤见仓库根目录的 `LINUX_PORTING_ACCEPTANCE.md`。
+
+公开合成测试不连接服务器，也不等于真实 Virtuoso/Calibre/PDK 原生集成验收；后者仍须使用用户授权的私有测试副本完成。
 
 ## 工艺样例需要准备什么
 

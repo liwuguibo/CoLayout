@@ -86,13 +86,13 @@ QDockWidget#routingDock QPushButton#routingApply:disabled { color: #747b85; back
 QWidget#compactChrome, QWidget#compactHeader, QWidget#compactFooter,
 QWidget#compactToolbar, QWidget#compactBreadcrumb {
     background: #2b2d30; color: #d8dee5;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QWidget#compactHeader, QWidget#compactToolbar { border-bottom: 1px solid #393c42; }
 QWidget#compactFooter, QWidget#compactBreadcrumb { border-top: 1px solid #393c42; }
 QWidget#studioProperties, QWidget#studioInspectorBody, QWidget#studioHierarchy {
     background: #25262a; color: #d8dee5;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QWidget#studioProperties { border-left: 1px solid #404348; }
 QWidget#studioHierarchy { border-right: 1px solid #404348; }
@@ -128,7 +128,7 @@ QWidget#compactChrome QLabel#propertyMessage { color: #c5bea9; }
 QPushButton, QToolButton {
     color: #c8ced8; background: transparent; border: 1px solid transparent;
     border-radius: 3px; padding: 4px 8px;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QPushButton:hover, QToolButton:hover { background: #393c43; border-color: #454951; }
 QPushButton:pressed, QToolButton:pressed { background: #454a54; border-color: #6d7a8e; }
@@ -155,7 +155,7 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateTimeEdit {
     color: #d8dee5; background: #202126; border: 1px solid #50545b;
     border-radius: 3px; padding: 4px 6px; min-height: 17px;
     selection-background-color: #3c4b63; selection-color: #e4e8ef;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QDateTimeEdit:focus { border-color: #7aa2de; }
@@ -179,7 +179,7 @@ QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
 QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background: #3b4658; }
 QCheckBox, QRadioButton {
     color: #c8ced8; background: transparent; spacing: 7px; padding: 3px 0;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QCheckBox:disabled, QRadioButton:disabled { color: #818995; }
 QCheckBox::indicator, QAbstractItemView::indicator { width: 14px; height: 14px; }
@@ -189,7 +189,7 @@ QTreeView, QTableView, QListView, QTextEdit, QPlainTextEdit {
     color: #c8ced8; background: #202126; alternate-background-color: #282a2f;
     border: 1px solid #404348; border-radius: 2px; gridline-color: #393d43;
     selection-background-color: #3c4b63; selection-color: #e4e8ef;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
     outline: 0;
 }
 QTreeView::item, QListView::item { padding: 4px 3px; min-height: 20px; }
@@ -215,7 +215,7 @@ QTabBar::tab:hover { color: #e4e8ef; background: #34373e; }
 
 QMenu {
     color: #d8dee5; background: #303238; border: 1px solid #555b60;
-    padding: 5px 3px; font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    padding: 5px 3px; font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QMenu::item { padding: 6px 26px 6px 22px; border: 1px solid transparent; border-radius: 2px; }
 QMenu::item:selected { color: #e4e8ef; background: #3b4658; border-color: #586a84; }
@@ -230,7 +230,7 @@ QDialogButtonBox QPushButton { background: #363b3f; border-color: #555d63; min-w
 QDialogButtonBox QPushButton:hover { background: #474f56; }
 QToolTip {
     color: #e4e8ef; background: #32363a; border: 1px solid #656e75;
-    padding: 5px 7px; font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    padding: 5px 7px; font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 
 QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }

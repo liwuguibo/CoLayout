@@ -139,9 +139,10 @@ def main():
                 prepared=work(lambda:generator.create(folder))
             assert prepared['ready']
             assert (folder/'PROMPT.md').is_file()
+            client_launcher=folder/('python.cmd' if os.name=='nt' else 'python.sh')
             report['steps'].append('client folder prepared with prompt and live connection')
             def cli(name,*arguments,expected_error=None):
-                process=subprocess.run([str(folder/'python.cmd'),'api.py','--client',name,*arguments],
+                process=subprocess.run([str(client_launcher),'api.py','--client',name,*arguments],
                     cwd=folder,capture_output=True,text=True,encoding='utf8',timeout=40,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
                 if expected_error:
@@ -155,7 +156,7 @@ def main():
                 return cli(name,'call',tool,'--args',str(path),'--wait-seconds','20',expected_error=expected_error)
             def invoke(name,tool,arguments,expected_error=None):
                 return work(lambda:call(name,tool,arguments,expected_error))
-            service=work(lambda:subprocess.run([str(folder/'python.cmd'),'service.py','connect'],
+            service=work(lambda:subprocess.run([str(client_launcher),'service.py','connect'],
                 cwd=folder,capture_output=True,text=True,encoding='utf8',timeout=15,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0))
             assert service.returncode==0,service.stderr

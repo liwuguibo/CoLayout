@@ -27,7 +27,7 @@ git log -5 --oneline
 .\.venv\Scripts\python.exe -m colayout_lite.bootstrap status
 ~~~
 
-新 checkout 没有 .venv 时先执行 setup.ps1。status 连接被拒绝仅表示 APP 不可达，不代表文档损坏，按[初始化手册](agent-setup.md)排查。保留已有未提交改动和本机配置。
+新 checkout 没有 .venv 时，Windows 先执行 setup.ps1，Linux 先执行 setup.sh；Linux 将上述解释器替换为 `.venv/bin/python`。status 连接被拒绝仅表示 APP 不可达，不代表文档损坏，按[初始化手册](agent-setup.md)排查。保留已有未提交改动和本机配置。
 
 在本机读取 .colayout/installation.json，核对实际文档、解释器、源码和当前客户端目录。其中 test_kit 是版图客户端目录，保留这个兼容字段名。不能把桌面上的 JSON 存档或记忆中的路径当作活动工作区。
 

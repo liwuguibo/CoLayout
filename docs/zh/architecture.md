@@ -2,7 +2,7 @@
 
 **简体中文** | [English](../en/architecture.md) · [项目首页](../../README.md) · [文档目录](index.md)
 
-CoLayout 有三大对外接口：Windows UI、本机 Agent API 和 Virtuoso 通信适配器。它们共用唯一的 Workspace、Editor 和对象身份系统。后台只读快照用于计算，不是另一套可编辑版图。
+CoLayout 有三大对外接口：Windows/Linux 桌面 UI、本机 Agent API 和 Virtuoso 通信适配器。它们共用唯一的 Workspace、Editor 和对象身份系统。后台只读快照用于计算，不是另一套可编辑版图。
 
 具体源码调用链与回归位置见[源码实现详解](internals.md)。首次接手建议先按[源码接手指南](maintainer-guide.md)检查当前安装。
 

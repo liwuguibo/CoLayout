@@ -57,7 +57,8 @@ class ReadWorker:
             command=[python_executable(),'-X','utf8','-m','colayout_lite.autoroute.process_entry',
                      'module','colayout_lite.agent_tools.read_worker']
             self.process=subprocess.Popen(command,cwd=ROOT,env=env,stdin=subprocess.PIPE,
-                stdout=self.log,stderr=subprocess.STDOUT,text=True,encoding='utf8',creationflags=flags)
+                stdout=self.log,stderr=subprocess.STDOUT,text=True,encoding='utf8',creationflags=flags,
+                start_new_session=os.name!='nt')
 
     def run(self,request):
         output=Path(request['output']);started=monotonic()
@@ -78,9 +79,13 @@ class ReadWorker:
         with self.lock:
             if self.job:self.job.close(terminate=True);self.job=None
             if self.process:
-                if self.process.poll() is None:
-                    try:self.process.terminate()
-                    except OSError:pass
+                try:
+                    if os.name=='nt':
+                        if self.process.poll() is None:self.process.terminate()
+                    else:
+                        from ..process_group import terminate
+                        terminate(self.process)
+                except OSError:pass
                 try:self.process.stdin.close()
                 except (OSError,ValueError):pass
                 self.process=None

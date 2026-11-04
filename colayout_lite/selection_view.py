@@ -231,6 +231,7 @@ class SelectionView(QObject):
                 color=QColor(colors.marquee_contains if self.gesture['mode']=='contains' else colors.marquee_intersects)
                 painter.setPen(QPen(color,2,Qt.PenStyle.SolidLine if self.gesture['mode']=='contains' else Qt.PenStyle.DashLine))
                 fill=QColor(color);fill.setAlpha(32);painter.setBrush(fill);painter.drawRect(self.rubber)
-                painter.setFont(QFont('Microsoft YaHei UI',9));painter.drawText(self.rubber.topLeft()+QPointF(5,-6),
+                from .fonts import ui_font
+                painter.setFont(ui_font(9));painter.drawText(self.rubber.topLeft()+QPointF(5,-6),
                     ('完整包含' if self.gesture['mode']=='contains' else '相交即选')+f' · {len(self.ids())} 个对象')
         finally:painter.restore()

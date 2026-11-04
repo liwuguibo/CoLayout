@@ -8,14 +8,14 @@
 
 | 项目 | 需要的信息 |
 |---|---|
-| Windows 电脑 | 可写的源码目录、Git、uv，以及初始化 Agent 执行本地命令的权限 |
+| Windows 或 Linux 桌面电脑 | 可写的源码目录、Git、uv，以及初始化 Agent 执行本地命令的权限；Linux 图形会话需要 Qt 运行库和中文 Fontconfig 字体 |
 | Linux 服务器或虚拟机 | IP／主机名或 SSH 别名、远程用户名、可访问的 SSH 服务、已核实的主机指纹 |
 | EDA 环境 | 合法安装的 Virtuoso；服务器检查／导出流程所需的 Calibre、XStream；完整可用的 PDK |
 | 工程目录 | 优先使用用户给出的路径；未提供时可只读发现，核对唯一候选的 PID/目录后继续，有歧义再询问 |
 | Layout 样例 | 已保存并在目标 Virtuoso 中打开；放在设计库中，不要直接改只读 PDK 库 |
 | 工艺规则 | 对应版本和选项的真实 DRC 主文件、stream map、工具与环境文件路径 |
 
-模型由你选择的 Agent 工具提供，CoLayout 不要求填写模型服务 API 密钥。版图 Agent 的执行工具需要运行在 APP 所在的 Windows 电脑上。
+模型由你选择的 Agent 工具提供，CoLayout 不要求填写模型服务 API 密钥。版图 Agent 的执行工具需要运行在 APP 所在的 Windows 或 Linux 电脑上。
 
 SSH 使用现有密钥或密钥代理；没有免密能力时请先配置或联系管理员。不要在对话中发送密码、私钥。首次连接正常核实服务器指纹，初始化工具不会关闭主机指纹验证。
 
@@ -23,21 +23,33 @@ SSH 优先使用运行 Virtuoso、拥有设计目录权限的普通账号，不�
 
 ## 1. 拉取和安装
 
+Windows:
+
 ```powershell
 git clone https://github.com/zyc649/CoLayout.git
 cd CoLayout
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
+Linux:
+
+```bash
+git clone https://github.com/zyc649/CoLayout.git
+cd CoLayout
+./setup.sh
+```
+
 两个 CoLayout skill 已随仓库放在 .agents/skills 下。安装脚本建立 .venv，安装固定版本依赖，下载并校验固定提交的 Bridge，应用有说明的 Windows 兼容补丁，再安装其上游 Virtuoso skill。依赖安装阶段不操作服务器上的版图。
 
 缺少 uv 时，按[官方安装说明（英文）](https://docs.astral.sh/uv/getting-started/installation/)安装，初始化 Agent 可在授权范围内协助。Python 3.13 由 uv 选择。
 
-Bridge 下载按 dependencies/bridge-lock.json 校验。离线准备了同一归档时，可以传 setup.ps1 -BridgeArchive；仍需哈希一致，不能为绕过错误随意换成最新分支。
+Bridge 下载按 dependencies/bridge-lock.json 校验。离线准备了同一归档时，Windows 可传 `setup.ps1 -BridgeArchive <归档>`，Linux 可传 `./setup.sh --bridge-archive <归档>`；仍需哈希一致，不能为绕过错误随意换成最新分支。
 
 ## 2. 打开 APP 并连接服务器
 
-Start-CoLayout.cmd 会打开空白、尚未配置工艺的工作区。
+Windows 的 Start-CoLayout.cmd 和 Linux 的 Start-CoLayout.sh 都会打开空白、尚未配置工艺的工作区。Linux 还可运行 `.venv/bin/python tools/install_workspace_shortcut.py` 安装当前用户的桌面启动项。
+
+以下 PowerShell 示例用于 Windows；Linux 将解释器路径换成 `.venv/bin/python` 即可，子命令和参数相同：
 
 ```powershell
 .\.venv\Scripts\python.exe -m colayout_lite.bootstrap configure --host layout-server.example.com --user designer --remote-root /workspace/design
@@ -89,16 +101,18 @@ MIM 必须确认实际覆盖层的 LPP 和上下金属对，并有样例、工�
 
 ## 4. 建立独立版图对话
 
-```powershell
-.\.venv\Scripts\python.exe tools/create_layout_agent.py
+Windows 使用 `.\.venv\Scripts\python.exe tools/create_layout_agent.py`，Linux 使用：
+
+```bash
+.venv/bin/python tools/create_layout_agent.py
 ```
 
 默认在源码目录旁建立同级文件夹，例如 CoLayout-layout-agent；也可用 --folder 指定。已有托管客户端用 --update 更新，其他非空目录不会被覆盖。身份、pending 和 outputs 会保留，自定义文件冲突会报告出来。
 
-若返回 restart_required，先结束占用并正常关闭 APP，再启动并发布连接：
+若返回 restart_required，先结束占用并正常关闭 APP，再启动并发布连接。Windows 运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\project.ps1 -Action publish`，Linux 运行：
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\project.ps1 -Action publish
+```bash
+./tools/project.sh publish
 ```
 
 确认 APP 返回的存档目录是新文件夹下的 workspaces，再新开一个只授权该文件夹的版图对话，让它阅读 AGENTS.md，并给出操作区 ID 和任务。

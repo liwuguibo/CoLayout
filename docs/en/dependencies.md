@@ -14,7 +14,7 @@ CoLayout gratefully acknowledges [Virtuoso Bridge Lite](https://github.com/Arcad
 
 On Windows, os.kill(pid, 0) is not a safe Unix-style existence probe. The patch uses a read-only process query/GetExitCodeProcess path; the POSIX path is unchanged. It changes no wire protocol or Virtuoso operation. The patch contains upstream context and remains covered by the upstream MIT notice.
 
-setup.ps1 downloads the exact archive into ignored .colayout/dependencies, verifies its SHA-256, safely extracts it, applies the patch and checks before/after file hashes. It installs from that source and copies the upstream Virtuoso skill, with attribution, to the ignored project skill directory. The complete dependency source remains locally available. --BridgeArchive supports the identical archive offline.
+Windows setup.ps1 and Linux setup.sh share `tools/bootstrap_bridge.py` to download the exact archive into ignored .colayout/dependencies, verify its SHA-256, safely extract it, apply the patch and check before/after file hashes. They install from that source and copy the upstream Virtuoso skill, with attribution, to the ignored project skill directory. The complete dependency source remains locally available. Windows `-BridgeArchive` and Linux `--bridge-archive` support the identical archive offline.
 
 The Git repository does not vendor the complete dependency or silently update it. A dependency outage produces a diagnosis; never fall back to an unverified main branch or another package with the same name.
 

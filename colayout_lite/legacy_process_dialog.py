@@ -125,7 +125,8 @@ def main():
     from PySide6.QtGui import QFont
     parser=argparse.ArgumentParser();parser.add_argument('--connection',default=str(ROOT/'config/colayout_lite.json'));args=parser.parse_args()
     cfg=json.loads(Path(args.connection).read_text(encoding='utf-8'))
-    app=QApplication([]);app.setFont(QFont('Microsoft YaHei UI',9))
+    from .fonts import ui_font
+    app=QApplication([]);app.setFont(ui_font(9))
     dialog=ProcessDialog(args.connection,cfg.get('default_library',''),cfg.get('default_source_cell',''))
     dialog.activate_button.setText('保存并退出');dialog.exec()
 

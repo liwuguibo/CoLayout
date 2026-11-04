@@ -4,7 +4,7 @@
 
 ## Environment and entry points
 
-Use Windows and the checkout's own Python 3.13 virtual environment. Run setup.ps1, then:
+Windows and Linux both use the checkout's own Python 3.13 virtual environment. On Windows, run setup.ps1, then:
 
 ```powershell
 .\.venv\Scripts\python.exe tools/check_environment.py
@@ -13,7 +13,16 @@ Use Windows and the checkout's own Python 3.13 virtual environment. Run setup.ps
 .\.venv\Scripts\python.exe -m tools.build_customer_api_kit --check
 ```
 
-Start-CoLayout.cmd delegates to tools/project.ps1. The installed source is editable; use a separate checkout and runtime for risky experiments. Never point a test installation at a user's writable workspace or active native target.
+On Linux, run setup.sh, then:
+
+```bash
+.venv/bin/python tools/check_environment.py
+.venv/bin/ruff check colayout_lite tools
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_lite -q
+.venv/bin/python -m tools.build_customer_api_kit --check
+```
+
+Start-CoLayout.cmd delegates to tools/project.ps1 on Windows; Start-CoLayout.sh delegates to tools/project.sh on Linux. The installed source is editable; use a separate checkout and runtime for risky experiments. Never point a test installation at a user's writable workspace or active native target.
 
 The public tests use synthetic geometry and mocked/native receipts. They do not require a PDK or connect to a server. They are not evidence that every PDK or proprietary tool version has passed. PDK-specific qualification uses the owner's sample and private copies with explicit authorization.
 
@@ -23,12 +32,12 @@ The public tests use synthetic geometry and mocked/native receipts. They do not 
 2. Preserve units, object IDs, permissions and transaction semantics.
 3. Add a behavioral regression for physical, permission, asynchronous adoption or transaction changes. Simple text/style edits need appropriate visual verification rather than tests that only repeat implementation.
 4. Run targeted checks while iterating; run the full public suite before integration.
-5. For GUI changes, exercise actual Qt interactions and pythonw on Windows. A successful import or offscreen screenshot alone does not validate taskbar identity or modal lifecycle.
+5. For GUI changes, exercise actual Qt interactions on the current desktop and pythonw on Windows. A successful import or offscreen screenshot alone does not validate taskbar/desktop identity or modal lifecycle.
 6. Regenerate SDK/schema after contract changes, verify no template drift, and update the maintenance docs.
 
 Background-thread tests use QEventLoop with deadlines, not sleeps that starve Qt. Assert the result and retained state on failure as well as on success.
 
-For the shipped layout client, run `tools/smoke_layout_client.py --out <new-folder>` with the project Python (also pythonw on Windows). It creates a separate synthetic APP/document and uses the generated folder's python.cmd through real HTTP: discovery, claims, sibling edits, wires/vias, net inspection, owned undo, local checks, screenshot, archive and handoff. It verifies rejection of out-of-scope edits and unverified completion. It never uses a real PDK or server DRC. Keep the output for diagnosis; an existing output directory is refused.
+For the shipped layout client, run `tools/smoke_layout_client.py --out <new-folder>` with the project Python (also pythonw on Windows). It creates a separate synthetic APP/document and uses the generated folder's python.cmd (python.sh on Linux) through real HTTP: discovery, claims, sibling edits, wires/vias, net inspection, owned undo, local checks, screenshot, archive and handoff. It verifies rejection of out-of-scope edits and unverified completion. It never uses a real PDK or server DRC. Keep the output for diagnosis; an existing output directory is refused.
 
 ## Areas to inspect when debugging
 
@@ -47,7 +56,7 @@ The UI is predominantly Chinese. Reader documentation has matching English and C
 
 ## Prepare an isolated development installation
 
-1. Run setup.ps1 in a new checkout so it creates its own .venv, .colayout, generated config and artifacts. Do not copy production runtime directories, workspace history or pending files; keep the tracked configuration examples.
+1. Run setup.ps1 on Windows or setup.sh on Linux in a new checkout so it creates its own .venv, .colayout, generated config and artifacts. Do not copy production runtime directories, workspace history or pending files; keep the tracked configuration examples.
 2. Run tools/check_environment.py and read this checkout's .colayout/installation.json. Verify app_root, python_executable, document, test_kit and workspace_archive_root. The client is normally a separate sibling folder, not application source.
 3. Prefer public pytest or smoke_layout_client.py --out <new-folder> for offline work; smoke_onboarding.py is for an empty installation. Respect their scope and never supply a production document to a smoke test.
 4. For native validation, verify the connection through the setup runbook and use explicitly authorized test copies. Import a verified endpoint into project-owned Bridge settings/state; reuse the server daemon/session, not another installation's VB_HOME. This does not create a cross-installation write lock; never write one native target concurrently from two installations.
@@ -61,16 +70,16 @@ Use the [existing targeted test map](internals.md#8-change-location-and-existing
 |---|---|
 | Documentation/skill text only | Links, homepage prompt and generated-client consistency, git diff --check; no native test solely for a wording change |
 | Local geometry/permissions/merging | Synthetic targeted checks then full regression; verify failure publishes nothing, siblings survive and undo boundaries hold. Add GUI checks if display is affected |
-| UI/worker lifecycle | Real Windows Qt interaction and pythonw; offscreen covers only some widget/rendering behavior, not focus, taskbar or window-close behavior |
+| UI/worker lifecycle | Real Qt interaction on the current desktop plus pythonw on Windows; offscreen covers only some widget/rendering behavior, not focus, taskbar/desktop identity or window-close behavior |
 | API/client | Contract/generated files and real loopback HTTP/client checks; cover restart/reconnect and unknown requests, retaining original request_id, pending and APP audit |
 | Native transactions/protocol | Offline fault tests plus authorized-copy round trips/failure recovery; retain input, receipts, save-readback and reconciliation evidence |
 | Process/check formats | Validation/serialization checks; use authorized copies when native generation or rule execution changes. Distinguish structure, reproduction, region DRC and sign-off |
 
-Repository CI still runs its configured checks. Public synthetic tests do not establish every PDK, server rule or real GUI scenario; report what was actually tested and what remains outside that evidence.
+Repository CI runs its configured Windows and Linux checks. Public synthetic tests do not establish every PDK, server rule or real GUI scenario; report what was actually tested and what remains outside that evidence.
 
 ## Dependencies
 
-Bridge is source-pinned and patched reproducibly. Read [Dependency provenance](dependencies.md) before updating it. Requirements are exact versions. setup.ps1 checks the downloaded archive and patched source; it does not pull main automatically.
+Bridge is source-pinned and patched reproducibly. Read [Dependency provenance](dependencies.md) before updating it. Requirements are exact versions. setup.ps1 and setup.sh check the downloaded archive and patched source; they do not pull main automatically.
 
 Qt is installed as PySide6_Essentials, without unused Addons. Do not add a module without reviewing its license. This source release distributes no Qt wheels, PDKs or EDA executables. Binary packaging requires a separate dependency/source-license review.
 

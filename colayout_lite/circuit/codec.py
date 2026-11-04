@@ -63,6 +63,25 @@ def view_ref(row):
     return ViewRef(**dict(zip(['library','cell','view','session','counter'], row)))
 
 
+def _is_tied_native_dummy(obj, interface, child_count):
+    """Accept only native leaf dummies with all terminals on one native net.
+
+    The fixed exporter retains OA property type and lbVal representation in
+    native_row. Names, ignore flags and display signal aliases are not proof.
+    A signal-driven dummy still needs its native schematic correspondence.
+    """
+    if child_count or obj.kind not in ('inst', 'mosaic') or len(obj.native_row) != 7:
+        return False
+    markers = [p for p in obj.native_row[5] or []
+               if isinstance(p, list) and p and p[0] == 'lxDummy']
+    if markers not in ([['lxDummy', 'boolean', ['string', 'TRUE']]],
+                       [['lxDummy', 'boolean', ['opaque', 't']]]):
+        return False
+    nets = {term.net for term in interface.values()}
+    nets.update(net for term in interface.values() for net in term.members.values())
+    return bool(interface) and len(nets) == 1 and None not in nets and '' not in nets
+
+
 def decode_context(raw, snapshot):
     """No name/master matching, parameter rules or inferred pins."""
     try:
@@ -83,15 +102,20 @@ def decode_context(raw, snapshot):
         for uid, name, master, child_count, terms, paths in layout_rows or []:
             if uid in physical or uid not in snapshot.objects:
                 raise ValueError('Missing or duplicate physical identity')
-            if not paths or any(not path for path in paths):
+            interface = terminals(terms)
+            children = int(child_count)
+            unbound_dummy = (paths is None or paths == []) and _is_tied_native_dummy(
+                snapshot.objects[uid], interface, children)
+            if (not paths and not unbound_dummy) or any(not path for path in paths or []):
                 raise LiteError('NATIVE_BINDING_MISSING', '没有原生绑定，不进行本地补配。', layout_uid=uid, name=name)
             physical[uid] = LayoutInstance(uid=uid, name=name, master=master,
-                black_box=int(child_count)>0, terminals=terminals(terms))
-            native_paths = tuple(native_path(path) for path in paths)
+                black_box=children>0, terminals=interface)
+            native_paths = tuple(native_path(path) for path in paths or [])
             for path in native_paths:
                 if (path[0].library,path[0].cell,path[0].view) != (source.library,source.cell,source.view):
                     raise ValueError('Native binding belongs to another source view')
-            bindings.append(NativeBinding(layout_uid=uid, schematic_paths=native_paths))
+            if native_paths:
+                bindings.append(NativeBinding(layout_uid=uid, schematic_paths=native_paths))
         if set(physical) != {uid for uid,obj in snapshot.objects.items() if obj.kind in ('inst','mosaic')}:
             raise ValueError('Incomplete Layout connectivity export')
         if len({inst.name for inst in physical.values()}) != len(physical):

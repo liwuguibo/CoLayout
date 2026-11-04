@@ -14,12 +14,21 @@
 
 ## 1. 在指定 checkout 安装
 
-从仓库根目录运行：
+从仓库根目录运行。Windows：
 
 ~~~powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 .\.venv\Scripts\python.exe tools/check_environment.py
 ~~~
+
+Linux：
+
+~~~bash
+./setup.sh
+.venv/bin/python tools/check_environment.py
+~~~
+
+本文后续 PowerShell 示例中的 `.\.venv\Scripts\python.exe` 在 Linux 上替换为 `.venv/bin/python`；`tools/project.ps1 -Action <动作>` 替换为 `tools/project.sh <动作>`，客户端 `.\python.cmd` 替换为 `./python.sh`。服务器连接、审核和恢复步骤不变。
 
 安装命令成功退出且 check_environment 返回 passed 才算完成。两项自有项目级技能已在仓库中；安装器另将带 LICENSE 的固定版本上游 Virtuoso skill 放到 .agents/skills/virtuoso。原生采集前核对三份 SKILL.md 均存在。
 

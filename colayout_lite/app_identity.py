@@ -1,4 +1,4 @@
-"""Shared application artwork and Windows taskbar identity."""
+"""Shared application artwork and Windows/Linux desktop identity."""
 from functools import lru_cache
 from pathlib import Path
 import sys
@@ -7,6 +7,7 @@ import subprocess
 from PySide6.QtGui import QIcon
 
 APPLICATION_ID = 'CoLayout.Lite.Workspace'
+DESKTOP_FILE_NAME = 'colayout-lite'
 ICON_PATH = Path(__file__).resolve().parent/'assets/branding/colayout-e2.ico'
 
 
@@ -29,7 +30,11 @@ def configure_application(app):
             setter.restype=ctypes.c_long
             applied=setter(APPLICATION_ID)==0
         except (OSError,AttributeError):pass
-    app.setProperty('colayoutWindowsIdentity',applied)
+    elif sys.platform.startswith('linux'):
+        app.setDesktopFileName(DESKTOP_FILE_NAME)
+        applied=app.desktopFileName()==DESKTOP_FILE_NAME
+    app.setProperty('colayoutWindowsIdentity',applied if sys.platform=='win32' else False)
+    app.setProperty('colayoutLinuxIdentity',applied if sys.platform.startswith('linux') else False)
 
 
 def taskbar_properties():

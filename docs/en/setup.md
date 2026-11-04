@@ -8,14 +8,14 @@ For an executing agent, the [setup runbook](agent-setup.md) gives commands, succ
 
 | Item | Required information |
 |---|---|
-| Windows workstation | A writable checkout, Git, uv, permission for the setup agent to execute local commands |
+| Windows or Linux workstation | A writable checkout, Git, uv, permission for the setup agent to execute local commands; Linux graphical sessions also need Qt runtime libraries and Chinese Fontconfig fonts |
 | Linux server or VM | Host/IP or SSH alias, remote username, reachable SSH service and verified host fingerprint |
 | EDA environment | Licensed Cadence Virtuoso; Calibre and XStream for the server check/export workflow; a working PDK |
 | Project | Prefer the supplied path; otherwise discover read-only and verify an unambiguous PID/directory, asking when candidates conflict |
 | Layout sample | Saved and open in that Virtuoso instance; use a design library, not the read-only PDK library |
 | Rule files | Actual process/version/options DRC main deck, stream map, executable and environment paths |
 
-The LLM runs in your chosen agent host. CoLayout does not require model-provider API keys. The layout agent's tools execute on the same Windows machine as the APP.
+The LLM runs in your chosen agent host. CoLayout does not require model-provider API keys. The layout agent's tools execute on the same Windows or Linux machine as the APP.
 
 For SSH, configure an existing key/agent or obtain help from your administrator. Do not send passwords or private keys to a conversation. On first connection verify the host fingerprint normally. The setup helper uses BatchMode and never disables host-key verification.
 
@@ -23,21 +23,33 @@ Prefer the ordinary account running Virtuoso and owning the design directory. Us
 
 ## 1. Clone and install
 
+Windows:
+
 ```powershell
 git clone https://github.com/zyc649/CoLayout.git
 cd CoLayout
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
+Linux:
+
+```bash
+git clone https://github.com/zyc649/CoLayout.git
+cd CoLayout
+./setup.sh
+```
+
 The repository already includes the two CoLayout skills under .agents/skills. Setup creates .venv, installs pinned packages, verifies/downloads the pinned Bridge source and applies its documented Windows compatibility patch. Its upstream Virtuoso skill is installed into the project, outside the tracked publication files. Nothing starts on the remote server during dependency installation.
 
 If uv is missing, use its [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/). The setup agent may assist within the permissions you grant. Python 3.13 is selected through uv.
 
-Downloads are verified against dependencies/bridge-lock.json. For an offline dependency archive use `setup.ps1 -BridgeArchive <archive>`; the same hash is required. Do not replace the lock with a newer upstream branch just to bypass a failure.
+Downloads are verified against dependencies/bridge-lock.json. For an offline dependency archive use `setup.ps1 -BridgeArchive <archive>` on Windows or `./setup.sh --bridge-archive <archive>` on Linux; the same hash is required. Do not replace the lock with a newer upstream branch just to bypass a failure.
 
 ## 2. Open the APP and bind the server
 
-Start-CoLayout.cmd opens an initially empty, unconfigured local workspace. A process configuration is not invented for you.
+Start-CoLayout.cmd on Windows and Start-CoLayout.sh on Linux open an initially empty, unconfigured local workspace. On Linux, `.venv/bin/python tools/install_workspace_shortcut.py` installs a per-user desktop entry.
+
+These PowerShell examples target Windows; on Linux substitute `.venv/bin/python` as the interpreter while keeping the same subcommands and arguments:
 
 ```powershell
 .\.venv\Scripts\python.exe -m colayout_lite.bootstrap configure --host layout-server.example.com --user designer --remote-root /workspace/design
@@ -89,16 +101,18 @@ If actual rule files are missing, stop that qualification and preserve the colle
 
 ## 4. Create the separate layout conversation
 
-```powershell
-.\.venv\Scripts\python.exe tools/create_layout_agent.py
+On Windows, use `.\.venv\Scripts\python.exe tools/create_layout_agent.py`; on Linux, use:
+
+```bash
+.venv/bin/python tools/create_layout_agent.py
 ```
 
 The default folder is a sibling of the checkout, such as CoLayout-layout-agent. Use --folder for an explicit alternative. Existing managed folders need --update; unrelated nonempty folders are not overwritten. The generator retains client identity/pending/output files and reports customized template conflicts.
 
-If restart_required is true, first finish all work, close the APP normally, start it again, and run:
+If restart_required is true, first finish all work, close the APP normally and start it again. On Windows, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\project.ps1 -Action publish`; on Linux, run:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\project.ps1 -Action publish
+```bash
+./tools/project.sh publish
 ```
 
 Verify the live workspace archive folder matches the new client's workspaces folder. Then open a new conversation with only that folder's permissions, read its AGENTS.md, and supply the intended operation-region ID.

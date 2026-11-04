@@ -20,9 +20,8 @@ def colors_for(components):
 
 
 def font_for(unit):
-    font = QFont('Microsoft YaHei UI')
-    font.setPixelSize(max(12, round(15 * unit)))
-    return font
+    from ..fonts import ui_font
+    return ui_font(pixel_size=max(12, round(15 * unit)))
 
 
 def clamp(rect, inside):

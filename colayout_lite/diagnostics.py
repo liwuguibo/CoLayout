@@ -1,4 +1,4 @@
-"""Persist Python and Qt fatal diagnostics for console-free Windows launches."""
+"""Persist Python and Qt fatal diagnostics for console-free desktop launches."""
 import faulthandler,sys,threading,traceback
 from datetime import datetime
 from pathlib import Path

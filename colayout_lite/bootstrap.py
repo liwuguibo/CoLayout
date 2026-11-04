@@ -13,6 +13,9 @@ from .model import LiteError
 from .transactions import write_json_atomic
 
 
+SETUP_SCRIPT = 'setup.ps1' if os.name == 'nt' else 'setup.sh'
+
+
 def installation_path():
     return ROOT / '.colayout/installation.json'
 
@@ -24,7 +27,7 @@ def default_agent_folder():
 def settings():
     path = installation_path()
     if not path.is_file():
-        raise LiteError('SETUP_REQUIRED', 'Run setup.ps1 first / 请先执行 setup.ps1。')
+        raise LiteError('SETUP_REQUIRED', f'Run {SETUP_SCRIPT} first / 请先执行 {SETUP_SCRIPT}。')
     return json.loads(path.read_text(encoding='utf8'))
 
 
@@ -109,7 +112,7 @@ def environment():
     from dotenv import dotenv_values
     cfg_path = ROOT / 'config/colayout_lite.json'
     if not cfg_path.is_file():
-        raise LiteError('SETUP_REQUIRED', 'Run setup.ps1 first.')
+        raise LiteError('SETUP_REQUIRED', f'Run {SETUP_SCRIPT} first.')
     cfg = json.loads(cfg_path.read_text(encoding='utf8'))
     env = (ROOT / cfg['bridge_env']).resolve()
     if not env.is_file():
@@ -133,7 +136,9 @@ def doctor():
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=15)
     except FileNotFoundError:
-        raise LiteError('SSH_CLIENT_MISSING', 'Install the Windows OpenSSH client and retry.')
+        message = ('Install the Windows OpenSSH client and retry.' if os.name == 'nt'
+                   else 'Install an OpenSSH client and retry.')
+        raise LiteError('SSH_CLIENT_MISSING', message)
     except subprocess.TimeoutExpired:
         raise LiteError('SSH_UNREACHABLE', 'Check server address, VPN, firewall and SSH configuration.')
     if result.returncode:

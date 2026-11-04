@@ -1,4 +1,4 @@
-"""pythonw smoke: icon sizes, inherited dialog icon, native taskbar identity."""
+"""Desktop smoke: icon sizes, dialog inheritance and native desktop identity."""
 import argparse,json,sys,traceback
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -16,7 +16,7 @@ def main():
     app=QApplication([]);app.setStyle('Fusion');configure_application(app)
     window=QMainWindow();window.setWindowTitle('CoLayout icon verification');window.resize(760,290)
     central=QWidget();window.setCentralWidget(central);layout=QVBoxLayout(central)
-    layout.addWidget(QLabel('当前应用图标 · Windows icon sizes'));row=QHBoxLayout();layout.addLayout(row)
+    layout.addWidget(QLabel('当前应用图标 · Application icon sizes'));row=QHBoxLayout();layout.addLayout(row)
     icon=application_icon()
     for size in (16,24,32,48,64,128):
         column=QVBoxLayout();label=QLabel();label.setPixmap(icon.pixmap(size,size));column.addWidget(label)
@@ -51,8 +51,12 @@ def main():
                     values={key:store.get(key) for key in (2,3,4,5)}
                 assert values==taskbar_properties()
                 report['window_properties']=values
+            elif sys.platform.startswith('linux'):
+                assert app.desktopFileName()=='colayout-lite'
+                assert app.property('colayoutLinuxIdentity')
+                report['desktop_file_name']=app.desktopFileName()
             dialog.close();window.grab().save(str(args.out/'sizes.png'))
-            report.update(status='passed',sizes=list(SIZES),pythonw=Path(sys.executable).stem=='pythonw',dialog_inherited=True,native_identity=app.property('colayoutWindowsIdentity'))
+            report.update(status='passed',sizes=list(SIZES),pythonw=Path(sys.executable).stem=='pythonw',dialog_inherited=True,native_identity=app.property('colayoutWindowsIdentity'),linux_identity=app.property('colayoutLinuxIdentity'))
         except Exception:report.update(status='failed',error=traceback.format_exc())
         (args.out/'result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
         if report['status']=='failed':clear_window(window);window.close();app.quit()

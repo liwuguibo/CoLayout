@@ -14,12 +14,21 @@ Both owned skills are already in project-level .agents/skills; setup.ps1 install
 
 ## 1. Install in the selected checkout
 
-Run from its root:
+Run from its root. Windows:
 
 ~~~powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 .\.venv\Scripts\python.exe tools/check_environment.py
 ~~~
+
+Linux:
+
+~~~bash
+./setup.sh
+.venv/bin/python tools/check_environment.py
+~~~
+
+In later PowerShell examples, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` on Linux, `tools/project.ps1 -Action <action>` with `tools/project.sh <action>`, and client `.\python.cmd` with `./python.sh`. Server connection, review and recovery steps are unchanged.
 
 Success means the setup command exits successfully and check_environment reports passed. Both project-owned skills are already tracked. Setup adds the pinned upstream Virtuoso skill with its LICENSE under .agents/skills/virtuoso. Confirm all three SKILL.md files exist before native collection.
 

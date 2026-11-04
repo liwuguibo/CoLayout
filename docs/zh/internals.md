@@ -6,7 +6,7 @@
 
 ## 1. 启动、所有权与关闭
 
-[tools/project.ps1](../../tools/project.ps1) 读取 .colayout/installation.json，使用 pythonw -m colayout_lite.workspace_app 启动，传入文档、--installation 和 --agent-api。启动器识别同一指针的已有进程，文档锁仍是最终写入保护。
+Windows 的 [tools/project.ps1](../../tools/project.ps1) 使用 pythonw，Linux 的 `tools/project.sh` 使用 `.venv/bin/python` 启动 `-m colayout_lite.workspace_app`。两者都读取 .colayout/installation.json，传入文档、--installation 和 --agent-api，识别同一指针的已有进程；文档锁仍是最终写入保护。Linux 后台 worker 使用独立进程组，Windows 使用 Job Object，关闭和取消均覆盖子进程。
 
 [workspace_app.main / WorkspaceWindow](../../colayout_lite/workspace_app.py) 安装诊断、创建 QApplication 和 StudioWindow、恢复内部文档及未决原生状态，然后启用 AgentHub。[StudioWindow](../../colayout_lite/studio_window.py) 在 WorkspaceWindow 上装配外壳；[ui.Window](../../colayout_lite/ui.py) 是共享画布/控制器基类，不是推荐的独立用户入口。
 
@@ -106,6 +106,8 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 
 [NativeTransport](../../colayout_lite/transport.py) 在构造时连接，首次使用时加载 NATIVE_SCRIPTS，编码数据而非任意代码。colayout_lite/skill 是 CoLayout 的原生协议实现，上游 Python 依赖单独安装。修改协议时同步处理两端和失败回归，保持 wire version、回执结构与 UID 核对兼容。
 
+配对导入允许一种明确的无绑定例外：原生属性 `lxDummy` 为布尔真、没有子实例、端子非空且所有端子及成员都属于同一非空原生网络的 dummy。`circuit.codec` 保留它的几何、UID、属性、端子和物理网络，但不创建虚假的原理图实例或绑定。名称、ignore 标志和显示网络别名不能作为例外依据。信号驱动的 dummy、普通无绑定器件、缺失端子网络及损坏的绑定路径仍被拒绝；原生对应检查与读取期间源稳定性检查仍必须通过。现有工作区和协议格式不变，参考绑定列表不必覆盖这些已确认的 dummy。回归入口为 [test_native_dummy_import.py](../../tests_lite/test_native_dummy_import.py)，包括导入、存档恢复、刷新及失败后保留状态。
+
 ## 6. 检查、过滤与工艺审核
 
 [RegionTasks](../../colayout_lite/agent_tools/region_tasks.py) 构造区域输入。[drc/local.run](../../colayout_lite/drc/local.py) 执行支持项，geometry、scope、Poly、MIM 和提醒模块分离。UI 高亮不是这个物理检查器。
@@ -138,7 +140,7 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 | 保护环和原生豁免 | [test_mpp_sample_choppability.py](../../tests_lite/test_mpp_sample_choppability.py)、[test_guard_ports.py](../../tests_lite/test_guard_ports.py)、[test_native_routing_window_router.py](../../tests_lite/test_native_routing_window_router.py) |
 | 过孔组合动作／布线 | [test_auto_vias.py](../../tests_lite/test_auto_vias.py)、[test_via_landing_intent.py](../../tests_lite/test_via_landing_intent.py)、[test_layout_helpers.py](../../tests_lite/test_layout_helpers.py)、[test_routes.py](../../tests_lite/test_routes.py) |
 | 服务器任务／报告存储 | [test_drc_jobs.py](../../tests_lite/test_drc_jobs.py)、[test_drc_job_storage.py](../../tests_lite/test_drc_job_storage.py)、[test_drc_hierarchy_scope.py](../../tests_lite/test_drc_hierarchy_scope.py)；解析语法改变时补专项报告 fixture |
-| 初始化与客户端 | [test_bootstrap_portability.py](../../tests_lite/test_bootstrap_portability.py)、[test_release_boundary.py](../../tests_lite/test_release_boundary.py)、[test_client_parallel_replay.py](../../tests_lite/test_client_parallel_replay.py)、[test_customer_cli_uid.py](../../tests_lite/test_customer_cli_uid.py) |
+| 初始化与客户端 | [test_bootstrap_portability.py](../../tests_lite/test_bootstrap_portability.py)、[test_release_boundary.py](../../tests_lite/test_release_boundary.py)、[test_client_parallel_replay.py](../../tests_lite/test_client_parallel_replay.py)、[test_customer_cli_uid.py](../../tests_lite/test_customer_cli_uid.py)、`tests_lite/test_linux_portability.py` |
 | 工艺采集／配置 | [test_process_setup.py](../../tests_lite/test_process_setup.py)、[test_onboarding.py](../../tests_lite/test_onboarding.py)；schema 改变时补审核/导出测试 |
 | GUI／渲染 | [test_translation_cache.py](../../tests_lite/test_translation_cache.py)、[test_compact_contrast.py](../../tests_lite/test_compact_contrast.py)、[test_gui_streams.py](../../tests_lite/test_gui_streams.py)；仍需实际 Qt/pythonw 和代表场景 |
 

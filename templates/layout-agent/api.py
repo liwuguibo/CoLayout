@@ -51,7 +51,6 @@ def record(event):
 
 @contextmanager
 def exclusive_cli():
-    import msvcrt
     path = STATE.parent / 'cli.lock'
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a+b') as stream:
@@ -60,14 +59,22 @@ def exclusive_cli():
             stream.flush()
         stream.seek(0)
         try:
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             raise RuntimeError('本测试包已有 API 调用正在执行，请等待；不能并行操作同一客户端。') from exc
         try:
             yield
         finally:
             stream.seek(0)
-            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            if os.name == 'nt':
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 def fingerprint(client):

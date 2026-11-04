@@ -34,6 +34,14 @@ def check():
         if not skills[name]:errors.append('Project skill missing: '+name)
     if not (ROOT/'.agents/skills/virtuoso/LICENSE').is_file():
         errors.append('Upstream Virtuoso skill license is missing.')
+    if sys.platform.startswith('linux'):
+        import subprocess
+        try:
+            fonts=subprocess.run(['fc-list',':lang=zh-cn','family'],capture_output=True,text=True,timeout=10)
+            if fonts.returncode or not fonts.stdout.strip():
+                errors.append('Install Fontconfig Chinese fonts, such as Noto Sans CJK SC.')
+        except (FileNotFoundError,subprocess.TimeoutExpired):
+            errors.append('Fontconfig and Chinese fonts are required for the Linux UI.')
     return {'status':'failed' if errors else 'passed','versions':versions,'project_skills':skills,'errors':errors}
 
 

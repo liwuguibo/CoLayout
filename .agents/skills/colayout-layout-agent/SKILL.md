@@ -7,11 +7,11 @@ description: Create or update a separate, client-only CoLayout layout-agent fold
 
 Use this from the setup/maintenance conversation, with repository access. The new layout conversation receives only its own folder, not this repository, SSH credentials or the Virtuoso skill.
 
-For a new machine first follow docs/en/agent-setup.md (Chinese: docs/zh/agent-setup.md). Run the commands below from the source root with its .venv Python. This skill changes only the selected client binding; it does not configure a process or grant host permissions.
+For a new machine first follow docs/en/agent-setup.md (Chinese: docs/zh/agent-setup.md). Run the commands below from the source root with its .venv Python. This skill changes only the selected client binding; it does not configure a process or grant host permissions. On Linux, use `.venv/bin/python`, `tools/project.sh <action>` and client `./python.sh` instead of the Windows paths shown below.
 
 The folder and HTTP connection can be prepared while a process proposal awaits human review. Report client readiness separately from process activation. Do not stop the remaining authorized setup after submitting the proposal, and do not claim/draw a real region until the user has enabled the intended process.
 
-1. Ensure setup.ps1 succeeded and the Windows APP is running. Read its status with the project Python:
+1. Ensure the platform setup script succeeded and the desktop APP is running. Read its status with the project Python:
    `.\.venv\Scripts\python.exe -X utf8 -m colayout_lite.bootstrap status`.
 2. Choose a user-approved folder. The default is a sibling named after the checkout plus `-layout-agent`, so it does not inherit the source project's maintenance skills. A nonempty unmanaged folder must not be overwritten.
 3. Run `.\.venv\Scripts\python.exe -X utf8 tools/create_layout_agent.py --folder "<folder>"`, or omit --folder for the default sibling. Use `--update` only for an existing managed client folder. It preserves identities, requests, pending outcomes, outputs and customized managed files; inspect any reported custom-file conflicts.

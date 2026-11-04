@@ -55,7 +55,7 @@ Server DRC may start without a preceding local pass, but done requires both curr
 
 tools/create_layout_agent.py copies only executable templates, instructions and generated schema/SDK. It never copies another agent's tasks, identities or pending. Existing managed files are hash-checked before update. The external agent host must enforce folder permissions; documentation alone is not a security sandbox.
 
-After changing agent_tools/contract.py, run:
+After changing agent_tools/contract.py, run (on Linux, substitute `.venv/bin/python` as the interpreter):
 
 ```powershell
 .\.venv\Scripts\python.exe -m tools.build_customer_api_kit

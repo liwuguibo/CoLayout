@@ -1,7 +1,8 @@
-"""Own the lifetime of a Windows algorithm process tree before executing code.
+"""Own the algorithm process tree lifetime before executing code.
 
-Runner workers join the host-owned job before target code. Standalone entry
-retains a non-inheritable self-owned fallback job.
+Windows workers join the host-owned job before target code; POSIX workers are
+started in a host-owned session/process group. Standalone Windows entry retains
+a non-inheritable self-owned fallback job.
 This is lifecycle management, NOT a filesystem/network/security sandbox.
 """
 import os,sys,runpy

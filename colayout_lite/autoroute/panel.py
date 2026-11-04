@@ -379,7 +379,7 @@ class RoutingPanel(QWidget):
         margin=2/max(abs(self.window.canvas.transform().m11()),1e-12)
         self.drawing.paint(painter,visible.adjusted(-margin,-margin,margin,margin),self.window.styles,
             None if candidate.validation['status']=='ready' else colors.net_short)
-        painter.resetTransform();painter.setFont(QFont('Microsoft YaHei UI',10));painter.setPen(QColor(colors.local_label))
+        painter.resetTransform();from ..fonts import ui_font;painter.setFont(ui_font(10));painter.setPen(QColor(colors.local_label))
         badge=QRectF(12,12,310,28);painter.fillRect(badge,QColor(colors.background))
         painter.drawText(badge,Qt.AlignmentFlag.AlignVCenter,'布线候选预览 · 尚未写入工作区')
 

@@ -2,7 +2,7 @@
 
 [简体中文](../zh/architecture.md) | **English** · [Project home](../../README.en.md) · [Documentation](index.md)
 
-CoLayout has three external surfaces: the Windows UI, the local Agent API and the native Virtuoso adapter. They share one authoritative Workspace, Editor and object identity system. Read-only worker snapshots are not separate editable layouts.
+CoLayout has three external surfaces: the Windows/Linux desktop UI, the local Agent API and the native Virtuoso adapter. They share one authoritative Workspace, Editor and object identity system. Read-only worker snapshots are not separate editable layouts.
 
 For actual source call chains and regression locations, continue to the [implementation guide](internals.md). New maintainers should first follow the [source takeover guide](maintainer-guide.md).
 

@@ -12,7 +12,8 @@ def native_frame_pen(colors):
 class ModuleCaption(QGraphicsSimpleTextItem):
     def __init__(self,text,*,native,color,background):
         super().__init__();self.full_text=text;self.native=native;self.background=background;self.module_bounds=None
-        font=QFont('Microsoft YaHei UI');font.setPixelSize(12);self.setFont(font)
+        from .fonts import ui_font
+        font=ui_font(pixel_size=12);self.setFont(font)
         self.setText(QFontMetrics(font).elidedText(text,Qt.TextElideMode.ElideRight,270))
         self.setBrush(QColor(color))
 

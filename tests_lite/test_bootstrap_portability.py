@@ -209,6 +209,7 @@ def test_client_folder_update_preserves_pending_identity_and_custom_files(instal
     result=tool.create(folder,update=True,offline=True)
     assert sentinel.read_text()=='keep original' and identity.read_text()=='keep identity'
     assert custom.read_text()=='user note' and 'README.md' in result['preserved_custom_files']
+    if sys.platform!='win32':assert (folder/'python.sh').stat().st_mode & 0o111
     assert not any((folder/name).exists() for name in ('.env','colayout_lite','virtuoso-bridge-lite','.agents/skills/virtuoso'))
 
 

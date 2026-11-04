@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "colayout-lite"
 version = "0.1.0"
-description = "Local-first layout workspace for Windows and Virtuoso"
+description = "Local-first layout workspace for Windows, Linux and Virtuoso"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
 authors = [{name = "zyc649"}]

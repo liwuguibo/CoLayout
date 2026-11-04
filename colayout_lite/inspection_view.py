@@ -317,7 +317,7 @@ class InspectionView:
                 from .conflict_overlay import paint
                 paint(painter,tr,viewport,self.conflict_points,colors.pin_error)
             if self.trace or self.pending:
-                painter.resetTransform();font=QFont('Microsoft YaHei UI');font.setPixelSize(12);painter.setFont(font)
+                painter.resetTransform();from .fonts import ui_font;font=ui_font(pixel_size=12);painter.setFont(font)
                 text=self.trace['message'] if self.trace else '正在计算本地连通关系…'
                 metrics=QFontMetricsF(font);width=max(1,min(viewport.width()-16,metrics.horizontalAdvance(text)+16))
                 badge=QRectF(8,viewport.height()-34,width,26)

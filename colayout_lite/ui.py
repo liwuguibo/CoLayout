@@ -38,7 +38,8 @@ class Window(QMainWindow):
         self.workspace_controller=WorkspaceController(self,root=lambda:ROOT)
         self._editor_unsubscribe=None;self._work_unsubscribe=None;self._workspace_overlay_items=[];self._local_pin_items=[];self.document_path=None
         self.workspace_changed.connect(self._on_workspace_changed)
-        self.setFont(QFont('Microsoft YaHei UI',9))
+        from .fonts import ui_font
+        self.setFont(ui_font(9))
         self.connection_config=Path(connection or (workspace.connection_config if workspace else None) or ROOT/'config/colayout_lite.json')
         self.groups={};self.base_figures={};self.styles={};self.textures={};self.scene_rebuilds=0
         self.setWindowTitle('CoLayout · 工艺与 DRC 统一配置');self.resize(1380,900);self._painting=False
@@ -140,7 +141,7 @@ class Window(QMainWindow):
         self.status.setText('本地黑盒：'+('不透明','半透明','透视')[level]+' · '+modifier+'+滚轮切换，仅影响显示')
 
     def native(self):
-        if not getattr(self,'remote_enabled',True):raise LiteError('OFFLINE_TRIAL','当前窗口是离线试用副本。请通过“启动CoLayout工作区.cmd”打开正式工作区使用通信。')
+        if not getattr(self,'remote_enabled',True):raise LiteError('OFFLINE_TRIAL','当前窗口是离线试用副本。请通过 CoLayout 工作区启动器打开正式工作区使用通信。')
         if self.adapter is None:self.adapter=Adapter(NativeTransport(self.connection_config,
             progress=lambda message:self.job.progress.emit(message) if self.job else None))
         self.adapter.native.progress=lambda message:self.job.progress.emit(message) if self.job else None

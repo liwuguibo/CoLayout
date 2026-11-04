@@ -1,4 +1,4 @@
-"""Install the region API into the normal Windows APP, not a demo Editor."""
+"""Install the region API into the normal desktop APP, not a demo Editor."""
 
 from pathlib import Path
 from uuid import uuid4

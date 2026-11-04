@@ -129,7 +129,7 @@ def alpha(color, opacity):
 STUDIO_STYLE_SHEET = """
 QWidget#studioChrome, QWidget#studioRibbon, QWidget#studioProperties, QWidget#studioHierarchy {
     background: #f7f8fa; color: #29313d;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI'; font-size: 12px;
+    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QWidget#studioChrome QLabel, QWidget#studioRibbon QLabel, QWidget#studioProperties QLabel {
     color: #475262; background: transparent;

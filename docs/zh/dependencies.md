@@ -14,7 +14,7 @@
 
 Windows 的 os.kill(pid, 0) 不能安全地当作 Unix 式存在性探测。补丁改用只读进程查询和 GetExitCodeProcess；POSIX 分支不变，也不改变通信协议或 Virtuoso 操作。补丁包含上游上下文，因此保留上游 MIT 声明。
 
-setup.ps1 将固定归档下载到被 Git 忽略的 .colayout/dependencies，核对 SHA-256，安全解压，应用补丁并检查修改前后文件哈希。随后从该源码安装，并将带来源声明的上游 Virtuoso skill 复制到项目级忽略目录。完整依赖源码保留在本地；--BridgeArchive 支持离线使用同一个归档。
+Windows 的 setup.ps1 和 Linux 的 setup.sh 使用同一个 `tools/bootstrap_bridge.py`，将固定归档下载到被 Git 忽略的 .colayout/dependencies，核对 SHA-256，安全解压，应用补丁并检查修改前后文件哈希。随后从该源码安装，并将带来源声明的上游 Virtuoso skill 复制到项目级忽略目录。完整依赖源码保留在本地；Windows 的 `-BridgeArchive` 和 Linux 的 `--bridge-archive` 支持离线使用同一个归档。
 
 Git 仓库不内置完整 Bridge，也不默默更新它。上游下载失败时给出诊断，不能回退到未校验的 main 分支或另一个同名包。
 
