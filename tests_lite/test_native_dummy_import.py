@@ -116,6 +116,25 @@ def test_native_checks_remain_required(case, code):
         decode_context(raw, snapshot)
 
 
+def test_unplaced_schematic_instance_lx1001_is_retained_without_layout_target():
+    raw, snapshot, _ = fixture()
+    raw[2].append([
+        'C_DECAP',
+        ['pdk', 'crtmom_rf', 'symbol'],
+        [['PLUS', 'VDD', 'inputOutput', [['PLUS', 'VDD']], [['PLUS', 'VDD']]],
+         ['MINUS', 'VSS', 'inputOutput', [['MINUS', 'VSS']], [['MINUS', 'VSS']]]],
+        ['captured', []],
+        [],
+        1,
+    ])
+    lx1001 = "INFO (LX-1001): Schematic instance 'C_DECAP' has no corresponding layout instance."
+    raw[6][1] = raw[6][1].replace('*** Check Against', lx1001 + '\n*** Check Against')
+    circuit, connectivity = decode_context(raw, snapshot)
+    assert 'C_DECAP' in circuit.instances
+    assert lx1001 in circuit.native_check.report
+    assert 'C_DECAP' not in {inst.name for inst in connectivity.instances.values()}
+
+
 def test_adapter_import_roundtrip_refresh_and_rejection_preserve_dummy(tmp_path, monkeypatch):
     raw, snapshot, profile = fixture()
     calls = []
@@ -142,3 +161,56 @@ def test_adapter_import_roundtrip_refresh_and_rejection_preserve_dummy(tmp_path,
         adapter.refresh(restored)
     assert path.read_bytes() == before
     assert calls and all(call[0] == 'ltPrepare' for call in calls)
+
+
+def test_refresh_prunes_deleted_region_member_and_keeps_group_references_strict(tmp_path, monkeypatch):
+    from colayout_lite.local_models import LocalGroup
+    from colayout_lite.model import Shape
+    from colayout_lite.regions.models import OperationRegion
+
+    raw, snapshot, profile = fixture()
+    wire = Object(
+        uid='wire1',
+        native_id='wire1',
+        kind='rect',
+        bbox=((10, 10), (50, 50)),
+        shape=Shape(kind='rect', lpp=('M1', 'drawing'), bbox=((10, 10), (50, 50)), net_intent='TIE'),
+    )
+    snap_with_wire = snapshot.model_copy(update={'objects': {**snapshot.objects, 'wire1': wire}})
+    current_snap = snap_with_wire
+    native = SimpleNamespace(
+        state=tmp_path,
+        config_path=tmp_path / 'connection.json',
+        call=lambda *args: None,
+        read_pair=lambda *args: ['colayout-paired-native-3', None, raw],
+    )
+    adapter = Adapter(native)
+    adapter.last_read_timings = {}
+    monkeypatch.setattr(adapter, '_decode_layout', lambda *args: (current_snap, profile))
+
+    workspace, _ = adapter.open_workspace('L', 'C')
+    reg = OperationRegion(
+        id='area-1',
+        bbox=((-100, -100), (200, 200)),
+        name='Area 1',
+        object_uids=('device', 'dummy', 'wire1'),
+    )
+    workspace = workspace.model_copy(
+        update={'local_data': workspace.local_data.model_copy(update={'regions': {'area-1': reg}})}
+    )
+
+    # Server deletes wire1 inside region: refresh prunes wire1 from region.object_uids.
+    current_snap = snapshot
+    refreshed, _ = adapter.refresh(workspace)
+    assert refreshed.local_data.regions['area-1'].object_uids == ('device', 'dummy')
+
+    # LocalGroup referencing a server-deleted object still raises LOCAL_REFERENCES_MISSING.
+    grouped = workspace.model_copy(
+        update={
+            'local_data': workspace.local_data.model_copy(
+                update={'groups': {'g1': LocalGroup(id='g1', name='G1', object_uids=('wire1',))}}
+            )
+        }
+    )
+    with pytest.raises(LiteError, match='LOCAL_REFERENCES_MISSING'):
+        adapter.refresh(grouped)

@@ -315,15 +315,29 @@ class Adapter:
         schematic = (source.library, source.cell, source.view) if source else None
         snapshot, profile, circuit, connectivity = self.read_pair(w.baseline.library, w.baseline.cell, schematic=schematic)
         snapshot = retain_display(w.baseline, snapshot)
+        local_data = w.local_data
+        if any(uid not in snapshot.objects for r in local_data.regions.values() for uid in r.object_uids):
+            pruned_regions = {
+                rid: r.model_copy(
+                    update={
+                        "object_uids": tuple(uid for uid in r.object_uids if uid in snapshot.objects),
+                        "revision": r.revision + 1,
+                    }
+                )
+                if any(uid not in snapshot.objects for uid in r.object_uids)
+                else r
+                for rid, r in local_data.regions.items()
+            }
+            local_data = local_data.model_copy(update={"regions": pruned_regions})
         from .local_models import require_references
-        require_references(w.local_data,snapshot.objects)
-        if (w.local_data.pins or w.local_data.regions or w.local_data.keepouts or w.local_data.markups or w.local_data.native_routing_windows) and snapshot.technology_fingerprint!=w.baseline.technology_fingerprint:
+        require_references(local_data,snapshot.objects)
+        if (local_data.pins or local_data.regions or local_data.keepouts or local_data.markups or local_data.native_routing_windows) and snapshot.technology_fingerprint!=w.baseline.technology_fingerprint:
             raise LiteError('LOCAL_PIN_TECHNOLOGY_CHANGED','工艺/单位变化，不能自动解释旧本地 PIN 坐标。')
         result = Workspace(
             baseline=snapshot,
             circuit=circuit,
             layout_connectivity=connectivity,
-            local_data=w.local_data,
+            local_data=local_data,
             profile_id=profile.id,
             connection_config=w.connection_config,
             instance_display={

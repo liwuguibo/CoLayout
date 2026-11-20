@@ -3,14 +3,29 @@
 procedure(ltGroupRefs(g)
   append(g~>figs append(list(g~>parent g~>figGroup)
     append(append(g~>children g~>groupMembers) append(g~>textDisplays g~>assocTextDisplays)))))
-procedure(ltGroupsPrepare(cv seed)
-  let((n)
+procedure(ltGroupsPrepare(cv seed @optional refOwners)
+  let((n groups refUid)
     n=0
-    foreach(g cv~>figGroups
+    groups=reverse(cv~>figGroups)
+    unless(refOwners refOwners=makeTable('ltGroupRefOwnerSeen nil))
+    foreach(g groups
       foreach(ref cons(g ltGroupRefs(g))
         when(ref && (ref~>cellView==cv || ref~>group~>cellView==cv || ref~>object~>cellView==cv) &&
-          !ref~>colayoutObjectId && !ref~>colayoutRouteId && !ref~>colayoutReferenceId
-          n=n+1 dbReplaceProp(ref "colayoutReferenceId" "string" strcat(seed ":groupref:" sprintf(nil "%d" n)))))) t))
+          !ref~>colayoutObjectId && !ref~>colayoutRouteId
+          refUid=ref~>colayoutReferenceId
+          when(refUid && !refOwners[refUid] refOwners[refUid]=ref))))
+    foreach(g groups
+      foreach(ref cons(g ltGroupRefs(g))
+        when(ref && (ref~>cellView==cv || ref~>group~>cellView==cv || ref~>object~>cellView==cv) &&
+          !ref~>colayoutObjectId && !ref~>colayoutRouteId
+          refUid=ref~>colayoutReferenceId
+          when(!refUid || refOwners[refUid]!=ref
+            refUid=nil
+            while(!refUid || refOwners[refUid]
+              n=n+1
+              refUid=strcat(seed ":groupref:" sprintf(nil "%d" n)))
+            dbReplaceProp(ref "colayoutReferenceId" "string" refUid)
+            refOwners[refUid]=ref)))) t))
 procedure(ltGroupAllowsDelete(g cv @optional (depth 0))
   !g || (depth<24 && g~>cellView==cv && g~>type=="none" && g~>colayoutReferenceId &&
     !g~>parent && !g~>children && !g~>groupMembers && !g~>textDisplays && !g~>assocTextDisplays &&

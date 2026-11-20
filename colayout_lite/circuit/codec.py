@@ -1,21 +1,28 @@
 """Native result decoding and transport checks; no circuit matching."""
+import re
 from ..model import LiteError
 from .models import (CircuitContext, LayoutConnectivity, LayoutInstance, NativeBinding,
                      NativeCheck, NativePathSegment, NativeParameter, ReferenceInstance, ReferenceScope, Terminal, ViewRef)
+
+_UNPLACED_SCHEMATIC_RE = re.compile(
+    r"^INFO \(LX-1001\): Schematic instance '[^'\r\n]+' has no corresponding layout instance\.$"
+)
 
 
 def check_native_report(succeeded, report):
     """CAS returns command success, not equivalence. Preserve all diagnostics.
 
-    IC618's verified clean report has only an opening and a closing line.
-    Any further diagnostic or an unknown format rejects import. We do not
-    reinterpret its m/finger calculations or ignore categories of findings.
+    IC618's verified clean report has an opening and a closing line; work-in-progress
+    layouts may also emit LX-1001 INFO lines for schematic instances not yet placed in
+    layout. Every existing layout instance still requires a verified native binding or
+    confirmed tied lxDummy below; any other CAS diagnostic or unknown format rejects import.
     """
     lines = [line.strip() for line in report.splitlines() if line.strip()]
     complete = (succeeded and len(lines) >= 2 and
                 lines[0].startswith('*** Checking layout cellview ') and
                 lines[-1] == '*** Check Against Source complete. ***')
-    if not complete or len(lines) != 2:
+    middle = lines[1:-1] if complete else None
+    if not complete or any(not _UNPLACED_SCHEMATIC_RE.match(line) for line in middle):
         raise LiteError('NATIVE_CORRESPONDENCE_REJECTED',
             'Virtuoso 未确认器件对应关系完整；请在 Virtuoso 修复后重新导入。',
             native_report=report, command_succeeded=bool(succeeded))

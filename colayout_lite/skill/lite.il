@@ -33,22 +33,41 @@ procedure(ltIndex(cv)
       when(uid when(idx[uid] error("DUPLICATE_UID")) idx[uid]=o)) idx))
 
 procedure(ltMark(cv seed)
-  let((n rod group child)
+  let((n objs rod group child existing seen uid dup groupOwners refOwners)
     n=0
-    foreach(o ltObjects(cv)
-      n=n+1
-      unless(o~>colayoutObjectId dbReplaceProp(o "colayoutObjectId" "string" strcat(seed ":" sprintf(nil "%d" n))))
-      when(member(o~>objType list("rect" "path" "pathSeg" "polygon" "stdVia")) && !o~>colayoutNetIntent
+    objs=ltObjects(cv)
+    existing=makeTable('ltMarkExisting nil)
+    foreach(o objs
+      uid=o~>colayoutObjectId
+      when(uid && !existing[uid] existing[uid]=o))
+    seen=makeTable('ltMarkSeen nil)
+    foreach(o objs
+      uid=o~>colayoutObjectId
+      dup=when(uid existing[uid]!=o)
+      when(!uid || dup
+        uid=nil
+        while(!uid || existing[uid] || seen[uid]
+          n=n+1
+          uid=strcat(seed ":" sprintf(nil "%d" n)))
+        dbReplaceProp(o "colayoutObjectId" "string" uid))
+      seen[uid]=t
+      when(member(o~>objType list("rect" "path" "pathSeg" "polygon" "stdVia")) &&
+           (!o~>colayoutNetIntent || dup)
         dbReplaceProp(o "colayoutNetIntent" "string" or(o~>net~>name ""))))
-    foreach(o cv~>shapes
+    groupOwners=makeTable('ltGroupOwnerSeen nil)
+    foreach(o objs
       rod=rodGetObj(o)
-      when(rod && rod~>subShapes
-        group=or(o~>colayoutStructureUid strcat("native:" o~>colayoutObjectId))
+      when(rod && rod~>dbId==o && rod~>subShapes
+        group=o~>colayoutStructureUid
+        when(!group || (groupOwners[group] && groupOwners[group]!=o)
+          group=strcat("native:" o~>colayoutObjectId))
+        groupOwners[group]=o
         foreach(child cons(o rod~>subShapes)
           when(dbIsId(child) && child~>cellView==cv
             dbReplaceProp(child "colayoutStructureUid" "string" group)))))
-    ltRoutingPrepare(cv seed)
-    ltGroupsPrepare(cv seed)
+    refOwners=makeTable('ltRefOwnerSeen nil)
+    ltRoutingPrepare(cv seed refOwners)
+    ltGroupsPrepare(cv seed refOwners)
     ltIndex(cv) t))
 
 procedure(ltClone(lib source target seed)

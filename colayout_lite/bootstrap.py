@@ -127,14 +127,20 @@ def environment():
 
 def doctor():
     cfg, env_file, values, host, user = environment()
-    args = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8']
+    args = [
+        'ssh',
+        '-o', 'BatchMode=yes',
+        '-o', 'GSSAPIAuthentication=no',
+        '-o', 'HostbasedAuthentication=no',
+        '-o', 'ConnectTimeout=30',
+    ]
     if values.get('VB_JUMP_HOST'):
         jump = values['VB_JUMP_HOST']
         if values.get('VB_JUMP_USER'): jump = values['VB_JUMP_USER'] + '@' + jump
         args += ['-J', jump]
     args += [user+'@'+host, 'true']
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=15)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=45)
     except FileNotFoundError:
         message = ('Install the Windows OpenSSH client and retry.' if os.name == 'nt'
                    else 'Install an OpenSSH client and retry.')
@@ -151,7 +157,7 @@ def doctor():
     return {'ssh_ready': True, 'environment': str(env_file), 'remote_root': cfg['allowed_remote_root']}
 
 
-def bridge(arguments, timeout=60):
+def bridge(arguments, timeout=90):
     _, env_file, _, _, _ = environment()
     executable = Path(sys.executable).with_name('virtuoso-bridge.exe' if os.name=='nt' else 'virtuoso-bridge')
     result = subprocess.run([str(executable), *arguments, '--env', str(env_file)],
@@ -197,7 +203,7 @@ def connect(window=None, bootstrap=False):
     display=selected.get('display')
     prefix=('DISPLAY='+shlex.quote(display)+' ') if display else ''
     observed=native.ssh_runner.run_command(
-        prefix+'xprop -id '+shlex.quote(selected['window_id'])+' _NET_WM_PID',timeout=10)
+        prefix+'xprop -id '+shlex.quote(selected['window_id'])+' _NET_WM_PID',timeout=30)
     match=re.search(r'_NET_WM_PID(?:\([^)]*\))?\s*=\s*(\d+)',observed.stdout)
     if not match or not native_pid:
         raise LiteError('VIRTUOSO_IDENTITY_UNAVAILABLE',

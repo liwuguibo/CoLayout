@@ -45,11 +45,18 @@ def test_missing_host_is_actionable_without_network(installation,monkeypatch):
 def test_ssh_failures_never_disable_host_verification(installation,monkeypatch,message,code):
     bootstrap.configure('layout-server.example.com','designer','/workspace/design')
     calls=[]
+    timeouts=[]
     def run(args,**kwargs):
-        calls.append(args);return SimpleNamespace(returncode=255,stderr=message)
+        calls.append(args);timeouts.append(kwargs.get('timeout'))
+        return SimpleNamespace(returncode=255,stderr=message)
     monkeypatch.setattr(bootstrap.subprocess,'run',run)
     with pytest.raises(LiteError,match=code):bootstrap.doctor()
-    assert 'BatchMode=yes' in calls[0] and not any('StrictHostKeyChecking=no' in a for a in calls[0])
+    assert 'BatchMode=yes' in calls[0]
+    assert 'GSSAPIAuthentication=no' in calls[0]
+    assert 'HostbasedAuthentication=no' in calls[0]
+    assert 'ConnectTimeout=30' in calls[0]
+    assert timeouts[0]>=45
+    assert not any('StrictHostKeyChecking=no' in a for a in calls[0])
 
 
 def test_multiple_windows_require_selection_without_bootstrap(installation,monkeypatch):
@@ -179,10 +186,9 @@ def test_first_ciw_load_requires_explicit_bootstrap(installation,monkeypatch):
     assert calls==[['start'],['bootstrap','--window','0x1']]
 
 
-def test_local_recovery_keeps_unknown_evidence_without_a_bridge_env(installation):
+def test_local_recovery_keeps_unknown_evidence_without_a_bridge_env(installation,monkeypatch):
     from colayout_lite.sync_recovery import restore_pending_state
-    from colayout_lite.transport import load_connection
-    from colayout_lite.paths import ROOT
+    from colayout_lite import transport
     w,p=load_document(bootstrap.settings()['document'])
     config=Path(w.connection_config)
     data=json.loads(config.read_text())
@@ -194,7 +200,10 @@ def test_local_recovery_keeps_unknown_evidence_without_a_bridge_env(installation
     saved.save(pending,portable=True)
     actual=restore_pending_state(w)
     assert actual.state=='indeterminate' and actual.last_result==saved.last_result
-    with pytest.raises(LiteError,match='BRIDGE_ENV_MISSING'):load_connection(config)
+    monkeypatch.setattr(transport,'ROOT',installation)
+    with pytest.raises(LiteError,match='BRIDGE_ENV_MISSING') as error:
+        transport.load_connection(config)
+    assert str(installation/'.env') in str(error.value)
 
 
 def test_client_folder_update_preserves_pending_identity_and_custom_files(installation,monkeypatch):

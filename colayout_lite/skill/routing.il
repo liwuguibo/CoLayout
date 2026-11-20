@@ -1,16 +1,43 @@
 ; Native physical-route adapter. Never changes logical terminals or nets.
-procedure(ltRoutingPrepare(cv seed)
-  let((n)
+procedure(ltRoutingPrepare(cv seed @optional refOwners)
+  let((n routes existing seen ruid refUid)
     n=0
-    foreach(r cv~>routes
-      n=n+1
-      unless(r~>colayoutRouteId dbReplaceProp(r "colayoutRouteId" "string" strcat(seed ":route:" sprintf(nil "%d" n)))))
-    foreach(r cv~>routes
+    routes=reverse(cv~>routes)
+    existing=makeTable('ltRouteExisting nil)
+    foreach(r routes
+      ruid=r~>colayoutRouteId
+      when(ruid && !existing[ruid] existing[ruid]=r))
+    seen=makeTable('ltRouteMarkSeen nil)
+    unless(refOwners refOwners=makeTable('ltRouteRefOwnerSeen nil))
+    foreach(r routes
+      ruid=r~>colayoutRouteId
+      when(!ruid || existing[ruid]!=r || seen[ruid]
+        ruid=nil
+        while(!ruid || existing[ruid] || seen[ruid]
+          n=n+1
+          ruid=strcat(seed ":route:" sprintf(nil "%d" n)))
+        dbReplaceProp(r "colayoutRouteId" "string" ruid))
+      seen[ruid]=t)
+    foreach(r routes
       foreach(ref append(list(r~>startConn r~>endConn r~>parent r~>figGroup)
                          append(append(r~>children r~>groupMembers) append(r~>textDisplays r~>assocTextDisplays)))
         when(ref && (ref~>cellView==cv || ref~>group~>cellView==cv || ref~>object~>cellView==cv) &&
-             !ref~>colayoutObjectId && !ref~>colayoutRouteId && !ref~>colayoutReferenceId
-          n=n+1 dbReplaceProp(ref "colayoutReferenceId" "string" strcat(seed ":ref:" sprintf(nil "%d" n)))))) t))
+             !ref~>colayoutObjectId && !ref~>colayoutRouteId
+          refUid=ref~>colayoutReferenceId
+          when(refUid && !refOwners[refUid] refOwners[refUid]=ref))))
+    foreach(r routes
+      foreach(ref append(list(r~>startConn r~>endConn r~>parent r~>figGroup)
+                         append(append(r~>children r~>groupMembers) append(r~>textDisplays r~>assocTextDisplays)))
+        when(ref && (ref~>cellView==cv || ref~>group~>cellView==cv || ref~>object~>cellView==cv) &&
+             !ref~>colayoutObjectId && !ref~>colayoutRouteId
+          refUid=ref~>colayoutReferenceId
+          when(!refUid || refOwners[refUid]!=ref
+            refUid=nil
+            while(!refUid || refOwners[refUid]
+              n=n+1
+              refUid=strcat(seed ":ref:" sprintf(nil "%d" n)))
+            dbReplaceProp(ref "colayoutReferenceId" "string" refUid)
+            refOwners[refUid]=ref)))) t))
 
 procedure(ltRouteKey(r) when(r or(r~>colayoutRouteId strcat("session:" lbId(r)))))
 procedure(ltRouteRef(o) when(o or(o~>colayoutObjectId o~>colayoutRouteId o~>colayoutReferenceId strcat("session:" lbId(o)))))

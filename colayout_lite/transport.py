@@ -143,7 +143,7 @@ class NativeTransport:
         """Read metadata before loading kernels or preparing any object IDs."""
         self.note('正在检查目标 Layout…')
         result=self.client.execute_skill(
-            'if(ddGetObj('+skill(library)+' '+skill(cell)+' "layout") then t else nil)',timeout=10)
+            'if(ddGetObj('+skill(library)+' '+skill(cell)+' "layout") then t else nil)',timeout=30)
         self._require_success(result,'NATIVE_ERROR','检查目标 Layout')
         answer=result.output.strip()
         if answer=='nil':

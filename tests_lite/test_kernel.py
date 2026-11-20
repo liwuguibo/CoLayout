@@ -175,3 +175,23 @@ def test_batch_conflict_does_not_publish_partial_edit(editor):
 def test_empty_net_intent_is_explicit_clear():
     s=Shape(kind='rect',lpp=('wire_a','drawing'),bbox=((0,0),(20,20)),net_intent='')
     assert s.net_intent is None
+
+
+def test_skill_prepare_deduplicates_copied_persistent_ids_while_ltindex_stays_strict():
+    lite=Path('colayout_lite/skill/lite.il').read_text(encoding='utf-8')
+    routing=Path('colayout_lite/skill/routing.il').read_text(encoding='utf-8')
+    groups=Path('colayout_lite/skill/groups.il').read_text(encoding='utf-8')
+    idx_proc=lite.split('procedure(ltIndex(',1)[1].split('\nprocedure(',1)[0]
+    mark_proc=lite.split('procedure(ltMark(',1)[1].split('\nprocedure(',1)[0]
+    route_proc=routing.split('procedure(ltRoutingPrepare(',1)[1].split('\nprocedure(',1)[0]
+    group_proc=groups.split('procedure(ltGroupsPrepare(',1)[1].split('\nprocedure(',1)[0]
+    assert 'error("DUPLICATE_UID")' in idx_proc
+    assert 'existing=makeTable(\'ltMarkExisting nil)' in mark_proc
+    assert 'dup=when(uid existing[uid]!=o)' in mark_proc
+    assert '(!o~>colayoutNetIntent || dup)' in mark_proc
+    assert 'ltRoutingPrepare(cv seed refOwners)' in mark_proc
+    assert 'ltGroupsPrepare(cv seed refOwners)' in mark_proc
+    assert 'existing=makeTable(\'ltRouteExisting nil)' in route_proc
+    assert 'when(!ruid || existing[ruid]!=r || seen[ruid]' in route_proc
+    assert 'when(!refUid || refOwners[refUid]!=ref' in route_proc
+    assert 'when(!refUid || refOwners[refUid]!=ref' in group_proc

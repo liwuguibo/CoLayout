@@ -128,8 +128,14 @@ procedure(lcCaptureNative(schematic layout lib cell token)
   let((schCounter layCounter snapshot sourceRows sourcePorts hierarchy layoutRows source reportPath reportOK report context)
     unless(layout~>libName==lib && layout~>cellName==cell error("NATIVE_CONTEXT_TARGET_MISMATCH"))
     lbCheckPath(schematic~>libName)
-    schCounter=schematic~>modifiedCounter layCounter=layout~>modifiedCounter
     reportPath=strcat(lbRoot "/.colayout-bridge/correspondence-" token ".log")
+    ; Run CAS before counter/snapshot capture: CAS updates diagnostic markers on
+    ; cellviews when reporting items such as LX-1001 unplaced schematic instances.
+    reportOK=lxCheckAgainstSource(schematic layout ?masterDiff t ?paramDiff nil
+      ?unboundInsts t ?connectivity nil ?nameDiff nil ?dummyDiff nil ?busTermDiff nil
+      ?logFileName reportPath ?appendToLog nil)
+    report=lcReportText(reportPath)
+    schCounter=schematic~>modifiedCounter layCounter=layout~>modifiedCounter
     source=list(schematic~>libName schematic~>cellName schematic~>viewName lbSession
       sprintf(nil "%L" schCounter))
     sourceRows=lcReferenceRows(schematic)
@@ -142,12 +148,6 @@ procedure(lcCaptureNative(schematic layout lib cell token)
     snapshot=ltCompactRead(lib cell)
     unless(equal(schCounter schematic~>modifiedCounter) && equal(layCounter layout~>modifiedCounter)
       error("SOURCE_CHANGED_DURING_READ"))
-    ; Run CAS after acquisition: a failing check can add diagnostic markers.
-    ; Return its report even then; it must not be masked by a counter error.
-    reportOK=lxCheckAgainstSource(schematic layout ?masterDiff t ?paramDiff nil
-      ?unboundInsts t ?connectivity nil ?nameDiff nil ?dummyDiff nil ?busTermDiff nil
-      ?logFileName reportPath ?appendToLog nil)
-    report=lcReportText(reportPath)
     context=list("colayout-context-native-5" source sourceRows sourcePorts
       layoutRows lcPorts(layout) list(reportOK report
         equal(schCounter schematic~>modifiedCounter) && equal(layCounter layout~>modifiedCounter)
