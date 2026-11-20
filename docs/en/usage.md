@@ -27,6 +27,23 @@ The top-level Rectangle button opens a secondary menu containing Rectangle and �
 
 Pour avoids every same-layer object not explicitly selected as a target and respects keepouts and blackbox routing policy. In the default mode, non-orthogonal obstacles receive conservative axis-aligned covers, and results are ordinary editable polygons with horizontal/vertical edges only, including concave L and U shapes. Holed regions are orthogonally sliced and merged back into simple polygons without holes. Enabling 45° cornering permits 45°/90° edges; supported 45° diagonal obstacles are avoided using their actual 45° contours, while obstacles at unsupported angles still receive conservative axis-aligned covers. Output slices are likewise merged into simple polygons without holes. Output is capped at 512 polygons per call, with one undo for the whole batch. Grid rounding adds a small clearance guard. This only enforces clearance from explicit obstacles; it does not replace width, density, antenna, electrical/thermal or complete DRC/LVS verification. Run local and server checks after pouring.
 
+## Local RC estimates while routing
+
+The top-bar **画线** button opens a nearby tool popover that automatically dismisses once canvas wire capture starts so the viewport remains unobstructed. Wire capture previews uncommitted orthogonal L-bend or single-segment drafts as points are added: press `Space` to flip between horizontal-first L, vertical-first L and single-axis orthogonal posture, press `[` / `]` (or `PageDown` / `PageUp`) to step down/up the metal stack with automatic per-layer default width and standard-via matching (showing a live via enclosure preview at the turn anchor), and right-click to undo the previous step. Enter/double-click commits once through the existing editor transaction, and Esc discards the draft. It does not require whole-region connectivity or DRC success before allowing incremental routing; existing permission, revision and geometry constraints still apply.
+
+With a reviewed RC model (analytic coefficients or an optional `surrogate` configuration pointing to local pure-NumPy Geo-Graph weights and stackup specs), **RC 寄生影响** can be toggled from the View menu into the right-hand tool tab area and shows `R`, reference-ground `Cg`, explicit neighbour coupling `Cc`, and `ΔR`, `ΔCg`, `ΔCc` against the interaction baseline. `Ca/Cp` never includes the explicitly enumerated neighbour effect: the same physical component is not coupled to itself, each pair is counted once, and unknown nets remain separate from different nets. When a via-aware neural surrogate is configured, dropping vias across pre-drawn bottom/top traces merges their net connectivity, cancels the prior inter-layer coupling, and evaluates 3D nodal resistance; otherwise arbitrary polygons, parallel branches and unclear topology do not receive a port-equivalent resistance or an RC delay.
+
+All interactive estimates run on the local computer from frozen geometry and approved coefficients, without SSH, Virtuoso, Calibre or network calls. Light values and the neighbour heat map use independent fixed-rate sampling with request coalescing, cooperative cancellation and geometry/complexity budgets; continuous movement still receives periodic results. Blackboxes contribute only filtered public PIN geometry, never their internal shapes. Unsupported model ranges, missing coefficients and excessive geometry are shown explicitly and never block normal editing.
+
+The RC panel is an early design aid, not a signoff extractor or a neighbour-delay calculator. Agent edits and route candidates can trigger the human display, but the Agent receives no RC values and cannot use them for optimization. No parasitic read API is added.
+
+## Layer palette, ruler and collaboration helpers
+
+- **Layer palette (LSW)**: Toggle **图层** in the top bar to open the compact left-column layer palette showing colour swatches for metals, via cuts and device layers. Checkboxes hide/show layers; single-clicking a writable layer syncs the active layer in Wire / Rectangle / Pour tools; **double-clicking a row enters Solo mode** (retaining connecting via cuts for metals), and double-clicking again or clicking **退出独显** restores the previous visibility state. Layer hiding is strictly view-only: hidden layers do not intercept clicks or marquee selection and never affect DRC, sync or Agent snapshots.
+- **Interactive ruler**: Click **标尺** or press `K` to measure distances snapped to the manufacturing grid and nearby visible geometry edges/corners (hold `Shift` for grid-only snap). Press `Space` to toggle orthogonal vs. diagonal ΔX/ΔY measurement, click two points to place a ruler, and press `Shift+K` to clear rulers in the current scope. Rulers are session-local viewport overlays and never mutate workspace history.
+- **Footer live readout and wire lock pill**: The right side of the footer displays live grid-snapped micron coordinates together with relative `Δ(ΔX, ΔY)` and length/box dimensions during active wire, ruler, box or drag gestures. The **锁线 / 移线** pill toggles directly between inspect-safe conductor lock and movable wires/vias.
+- **Copy task context**: Use **编辑 → 复制任务上下文** (or right-click an operation region) to copy a structured summary of the target region ID, bounds, interface PINs and current-scope markups/keepouts to the clipboard for pasting into a layout Agent conversation.
+
 ## Hierarchy and routing windows
 
 Ordinary leaf PCells participate in local/server checks. True native hierarchical objects remain blackboxes. Their public PINs may be inside their footprint: object-specific, layer-specific routing windows can open a limited corridor. These do not reveal/edit internal geometry or waive another object's keepout.
@@ -64,6 +81,9 @@ For an unknown request outcome, preserve the original request ID/body and pendin
 | Default | Action |
 |---|---|
 | F | Fit the view |
+| K / Shift+K | Toggle ruler capture / clear rulers in current scope |
+| Space (in wire or ruler) | Flip wire L-bend posture / toggle orthogonal vs. diagonal ruler |
+| [ / ] (in wire) | Step down / up the metal stack and auto-match standard via |
 | Ctrl+E | Return to the parent level |
 | Ctrl+R | Rotate selected supported objects by 90° |
 | Ctrl+Z or U | Undo |
@@ -71,7 +91,7 @@ For an unknown request outcome, preserve the original request ID/body and pendin
 | Ctrl + wheel | Change the hierarchy peek level |
 | Esc | Cancel the current interaction |
 
-Shortcuts are configurable in the UI. Text fields keep text-editing behavior. Panel buttons toggle their corresponding panels; auto-routing is available through View rather than the main toolbar.
+Shortcuts are configurable in the UI. Text fields keep text-editing behavior. Panel buttons toggle their corresponding panels; auto-routing and RC parasitic estimates are available through View rather than the main toolbar.
 
 ---
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from pydantic import Field, model_validator
 from .model import Record, Shape, LiteError, digest
+from .parasitic_models import RcModel
 
 # Candidate native names only; absent fields stay absent and profiles may override.
 DEFAULT_SCHEMATIC_SUMMARY_PARAMETERS = ('w','l','fw','fingers','nf','m','r','c')
@@ -34,6 +35,7 @@ class TechnologyProfile(Record):
     editor_defaults: dict[str,Any] = Field(default_factory=dict)
     # Display preferences only: never part of native matching or extraction.
     schematic_summary_parameters: tuple[str,...] = DEFAULT_SCHEMATIC_SUMMARY_PARAMETERS
+    parasitics: RcModel|None = Field(default=None,exclude_if=lambda v:v is None)
 
     @model_validator(mode='before')
     @classmethod
@@ -78,11 +80,31 @@ class TechnologyProfile(Record):
         recipes=[GuardRecipe.model_validate(raw) for raw in self.guard_recipes]
         if len({r.id for r in recipes})!=len(recipes):raise ValueError('Duplicate guard recipe ID')
         for recipe in recipes:recipe.check_profile(self)
+        if self.parasitics:
+            rc=self.parasitics
+            metal_names={r['layer'] for r in self.layers if r['purpose']=='drawing' and r.get('material')=='metal'}
+            conductor_names={r['layer'] for r in self.layers if r['purpose']=='drawing' and r.get('material') in ('metal','poly')}
+            cut_names={v.get('cut_layer') for v in self.vias.values() if v.get('cut_layer')}
+            if set(rc.metals)-metal_names or set(rc.lateral)-metal_names:raise ValueError('RC model references an unknown metal')
+            if set(rc.vias)-set(self.vias):raise ValueError('RC model references an unknown via')
+            for key in rc.overlap:
+                layers=key.split('|')
+                if len(layers)!=2 or layers!=sorted(layers) or len(set(layers))!=2 or set(layers)-metal_names:
+                    raise ValueError('Invalid RC overlap layer pair')
+            if rc.surrogate:
+                if set(rc.surrogate.layer_map)-conductor_names:
+                    raise ValueError('RC surrogate layer_map references an unknown conductor layer')
+                if set(rc.surrogate.via_map)-(set(self.vias)|cut_names):
+                    raise ValueError('RC surrogate via_map references an unknown via')
         return self
 
     @property
     def key(self):
         return self.configuration_id or self.native_fingerprint
+
+    @property
+    def rc_model_digest(self):
+        return self.parasitics.fingerprint() if self.parasitics else None
 
     @property
     def native_layers(self):

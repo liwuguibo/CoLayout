@@ -46,6 +46,18 @@ class _HistoryEntry:
     key: str = field(default_factory=lambda:uuid4().hex)
 
 
+@dataclass(frozen=True)
+class WorkspaceCommit:
+    before: Workspace
+    after: Workspace
+    profile: object
+    rc_model_digest: str | None
+    document_id: str
+    revision: int
+    scope_id: str | None
+    changed: frozenset
+
+
 def intent_properties(properties, intent):
     return [deepcopy(p) for p in properties if p[0] != 'colayoutNetIntent'] + [
         ['colayoutNetIntent', 'string', ['string', intent or '']]
@@ -132,6 +144,7 @@ class Editor:
         self._undo = []
         self._redo = []
         self._listeners = []
+        self._commit_listeners = []
         self._batch_transforms = None
         self.scope_id = scope_id
         from .work_sessions import WorkSessions
@@ -142,6 +155,10 @@ class Editor:
         """View adapters observe the same committed local state as callers."""
         self._listeners.append(callback)
         return lambda: self._listeners.remove(callback) if callback in self._listeners else None
+
+    def subscribe_commits(self, callback):
+        self._commit_listeners.append(callback)
+        return lambda: self._commit_listeners.remove(callback) if callback in self._commit_listeners else None
 
     def _notify(self, before):
         if self.work_sessions.defer_workspace_notification(before):
@@ -156,6 +173,15 @@ class Editor:
                 import logging
 
                 logging.getLogger(__name__).exception('Workspace view notification failed')
+        event = WorkspaceCommit(before, self.w, self.profile, self.profile.rc_model_digest,
+                                self.w.id, self.w.revision, self.scope_id, frozenset(changed))
+        for callback in tuple(self._commit_listeners):
+            try:
+                callback(event)
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception('Workspace commit notification failed')
 
     def set_instance_display(self, uid, mode, display=None):
         if uid not in self.w.baseline.objects or self.w.baseline.objects[uid].kind not in (

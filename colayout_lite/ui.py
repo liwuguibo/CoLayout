@@ -41,7 +41,7 @@ class Window(QMainWindow):
         from .fonts import ui_font
         self.setFont(ui_font(9))
         self.connection_config=Path(connection or (workspace.connection_config if workspace else None) or ROOT/'config/colayout_lite.json')
-        self.groups={};self.base_figures={};self.styles={};self.textures={};self.scene_rebuilds=0
+        self.groups={};self.base_figures={};self.styles={};self.textures={};self.hidden_layers=set();self.scene_rebuilds=0
         self.setWindowTitle('CoLayout · 工艺与 DRC 统一配置');self.resize(1380,900);self._painting=False
         outer=QWidget();self.setCentralWidget(outer);layout=QVBoxLayout(outer)
         bar=QHBoxLayout();layout.addLayout(bar)
@@ -120,12 +120,17 @@ class Window(QMainWindow):
         self.canvas.view_changed.connect(self.refresh_camera_overlay)
         from .inspection_view import InspectionView
         self.inspection=InspectionView(self);self.refresh_workspace_overlay()
+        from .parasitic_view import ParasiticView
+        self.parasitics=ParasiticView(self)
+        from .ruler_tool import RulerTool
+        self.ruler=RulerTool(self)
         from .shortcuts import ShortcutManager
         self.shortcuts=ShortcutManager(self,shortcut_path or ROOT/'config/gui-shortcuts.json')
         self.shortcuts.bind({'fit':self.fit,'up':lambda:self.region_panel.navigate(self.region_panel.up),
             'rotate':lambda:getattr(self,'human',None) and self.human.command('rotate'),
             'undo':lambda:self.undo(False),'redo':lambda:self.undo(True),'redo_alt':lambda:self.undo(True),
-            'delete':lambda:getattr(self,'human',None) and self.human.command('delete')})
+            'delete':lambda:getattr(self,'human',None) and self.human.command('delete'),
+            'ruler':self.ruler.start_or_toggle,'clear_rulers':self.ruler.clear_all})
         from .selection_view import SelectionView
         selection_bar=QHBoxLayout();layout.insertLayout(2,selection_bar)
         self.selection_ui=SelectionView(self,selection_bar,self.shortcuts.path.with_name('gui-selection.json'))
@@ -344,9 +349,31 @@ class Window(QMainWindow):
         from .presentation.layout_scene import draw_owner
         return draw_owner(self,uid,figures)
 
-    def visibility(self):
-        self.canvas.invalidate_preview()
-        if self.editor and self.sender() is self.internal:
+    def set_hidden_layers(self,layers):
+        updated={str(layer) for layer in layers if layer}
+        if updated==self.hidden_layers:return
+        self.hidden_layers=updated
+        self.visibility(geometry=False)
+        deselected=False
+        with QSignalBlocker(self.scene):
+            for group in self.groups.values():
+                if any(part.isSelected() for part in group.parts.values()) and not any(
+                    part.isVisible() and any(child.isVisible() for child in part.childItems())
+                    for part in group.parts.values()
+                ):
+                    for part in group.parts.values():part.setSelected(False)
+                    deselected=True
+        if deselected:
+            self.selected()
+            self.canvas.refresh_selection()
+        self.view_state_changed.emit()
+
+    def visibility(self,checked=False,*,geometry=None):
+        from .presentation.layout_scene import apply_item_visibility
+        sender=self.sender()
+        if geometry is None:geometry=sender in (self.internal,self.pattern)
+        self.canvas.invalidate_preview(geometry=geometry)
+        if self.editor and sender is self.internal:
             self.base_figures,self.styles=figures_by_owner(self.editor.w.baseline,modes=self.display_choices())
             self.textures={k:make_texture(v) for k,v in self.styles.items()}
             uids={u for u,o in self.editor.w.baseline.objects.items() if o.kind in ('inst','mosaic')}
@@ -355,14 +382,9 @@ class Window(QMainWindow):
             self.local_refresh(uids)
         objects=projected(self.editor.w) if self.editor else {}
         for uid,group in self.groups.items():
-            o=objects.get(uid)
-            for item in group.childItems():
-                if item.data(1) not in ('instance_outline','interface'):item.setVisible(self.internal.isChecked() or not o or o.kind not in ('inst','mosaic'))
-                if isinstance(item,NativeFigureItem):
-                    item.patterned=self.pattern.isChecked()
-                    visible=(item.data(1)=='interface' or self.internal.isChecked() or not o or o.kind not in ('inst','mosaic')) and (self.cuts.isChecked() or not item.style['is_cut'])
-                    item.setVisible(visible);item.update()
+            apply_item_visibility(self,objects.get(uid),group)
         if self.editor:self.refresh_workspace_overlay()
+        else:self.view_state_changed.emit()
 
     def local_refresh(self,changed):
         blocker=QSignalBlocker(self.scene)
@@ -531,6 +553,8 @@ class Window(QMainWindow):
         self.save_local()
         if self._editor_unsubscribe:self._editor_unsubscribe();self._editor_unsubscribe=None
         if self._work_unsubscribe:self._work_unsubscribe();self._work_unsubscribe=None
+        if hasattr(self,'parasitics'):self.parasitics.close()
+        if hasattr(self,'ruler'):self.ruler.dispose()
         if hasattr(self,'inspection'):self.inspection.close()
         if hasattr(self,'shortcuts'):self.shortcuts.close()
         if hasattr(self,'selection_ui') and not self.selection_ui._closed:self.selection_ui.close()

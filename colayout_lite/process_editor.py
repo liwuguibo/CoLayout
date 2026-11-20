@@ -1,4 +1,5 @@
 """One editor for saved configuration, incoming proposals and shared files."""
+import json
 from math import lcm
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QLabel,QLineEdit,QDoubleSpinBox,
@@ -54,6 +55,13 @@ class ConfigurationEditor(QWidget):
         self.guard_details=QLabel();self.guard_details.setTextFormat(Qt.TextFormat.PlainText);self.guard_details.setWordWrap(True)
         layout.addWidget(self.guard_details);self.guards.currentCellChanged.connect(self.describe_guard)
         page(self.tabs,'保护环',guards)
+        rc=QWidget();rc_layout=QVBoxLayout(rc)
+        rc_note=QLabel('本地轻量估算参数。Cg 仅含声明参考环境下对参考地的电容，显式邻近耦合另计为 Cc。\n编辑完整 JSON；来源、corner、温度、参考环境及线宽/间距/层对范围均需审核。留空表示未配置。')
+        rc_note.setWordWrap(True);rc_layout.addWidget(rc_note)
+        self.parasitics=QPlainTextEdit();self.parasitics.setObjectName('processParasitics')
+        self.parasitics.setPlaceholderText('{\n  "source": "实际 PDK 文件与定义位置",\n  "corner": "nominal",\n  "temperature_c": 25,\n  "reference_environment": "reference ground only; no neighbours"\n}')
+        rc_layout.addWidget(self.parasitics)
+        page(self.tabs,'RC 寄生',rc)
         display=QWidget();form=QFormLayout(display)
         self.summary_parameters=QLineEdit();form.addRow('原理图参数摘要',self.summary_parameters)
         self.summary_parameters.setPlaceholderText('PDK 实际参数名，逗号分隔；留空不显示摘要')
@@ -110,6 +118,7 @@ class ConfigurationEditor(QWidget):
         self.summary_parameters.setText(', '.join(p.schematic_summary_parameters))
         report=package.report_policy or WaiverPolicy(technology_fingerprint=p.native_fingerprint,configuration_id=p.configuration_id)
         self.report_enabled.setChecked(report.enabled);self.report_rules.setPlainText('\n'.join(report.rule_ids));self.report_keywords.setPlainText('\n'.join(report.keywords))
+        self.parasitics.setPlainText(json.dumps(p.parasitics.model_dump(mode='json'),ensure_ascii=False,indent=2) if p.parasitics else '')
         self.notes.setPlainText(package.notes)
         if self.guards.rowCount():self.guards.setCurrentCell(0,1)
         self.describe_guard()
@@ -166,9 +175,13 @@ class ConfigurationEditor(QWidget):
         if not name:raise ValueError('请填写工艺名称')
         layers=self.layers.selected_layers()
         if {tuple(v) for v in layers}==set(p.writable_lpps):layers=p.writable_lpps
+        raw_rc=self.parasitics.toPlainText().strip()
+        from .parasitic_models import RcModel
+        rc_model=RcModel.model_validate(json.loads(raw_rc)) if raw_rc else None
         p=TechnologyProfile.model_validate({**p.model_dump(mode='json'),'id':p.id,'label':name,
             'editor_defaults':defaults,'writable_lpps':layers,
             'guard_templates':guards['template'],'guard_recipes':guards['recipe'],
+            'parasitics':rc_model,
             'schematic_summary_parameters':[s.strip() for s in self.summary_parameters.text().replace('，',',').split(',') if s.strip()]})
         report=WaiverPolicy(technology_fingerprint=p.native_fingerprint,configuration_id=p.configuration_id,enabled=self.report_enabled.isChecked(),
             rule_ids=tuple(s.strip() for s in self.report_rules.toPlainText().splitlines() if s.strip()),

@@ -90,12 +90,12 @@ QWidget#compactToolbar, QWidget#compactBreadcrumb {
 }
 QWidget#compactHeader, QWidget#compactToolbar { border-bottom: 1px solid #393c42; }
 QWidget#compactFooter, QWidget#compactBreadcrumb { border-top: 1px solid #393c42; }
-QWidget#studioProperties, QWidget#studioInspectorBody, QWidget#studioHierarchy {
+QWidget#studioProperties, QWidget#studioInspectorBody, QWidget#studioHierarchy, QWidget#studioLayers {
     background: #25262a; color: #d8dee5;
     font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif; font-size: 12px;
 }
 QWidget#studioProperties { border-left: 1px solid #404348; }
-QWidget#studioHierarchy { border-right: 1px solid #404348; }
+QWidget#studioHierarchy, QWidget#studioLayers { border-right: 1px solid #404348; }
 QWidget#studioInspectorBody { border: 0; }
 QScrollArea#studioInspectorScroll { background: #25262a; border: 0; }
 QWidget#compactChrome QLabel, QToolBar#compactToolbar QLabel { color: #c8ced8; background: transparent; border: 0; }
@@ -197,7 +197,18 @@ QTreeView::item:hover, QListView::item:hover { background: #34373e; }
 QTreeView::item:selected, QListView::item:selected {
     color: #e4e8ef; background: #3c4b63;
 }
-QWidget#studioHierarchy QTreeWidget { background: #25262a; border: 0; }
+QWidget#studioHierarchy QTreeWidget, QWidget#studioLayers QListWidget { background: #25262a; border: 0; }
+QWidget#studioLayers QPushButton {
+    background: #35373c; border-color: #45484a; padding: 3px 6px; font-size: 11px;
+}
+QWidget#studioLayers QPushButton:hover { background: #3a3d40; border-color: #6d7a8e; }
+QWidget#studioLayers QPushButton:disabled { color: #747b85; background: #2d2f34; border-color: #3a3d40; }
+QToolButton#compactConductorToggle {
+    padding: 2px 7px; font-size: 11px; border-color: #454951; background: #303238;
+}
+QWidget#compactChrome QLabel#compactCoords {
+    color: #c8ced8; font-family: 'Consolas', 'Cascadia Mono', 'DejaVu Sans Mono', monospace; font-size: 11px; padding: 0 4px;
+}
 QHeaderView::section {
     background: #303238; color: #bbc3ce; border: 0;
     border-bottom: 1px solid #454951; padding: 5px 7px; font-weight: 400;

@@ -56,6 +56,19 @@ class Job:
 
 
 @dataclass(frozen=True)
+class RouteCandidateEvent:
+    action: str
+    editor: object
+    baseline: object
+    candidate: object
+    profile: object
+    scope_id: str
+    target_uids: tuple
+    job_id: str
+    candidate_id: str | None = None
+
+
+@dataclass(frozen=True)
 class JobStatus:
     job_id: str
     kind: str
@@ -78,7 +91,25 @@ class JobRegistry:
         self.audit = audit
         self.jobs = {}
         self.audit_failure = None
+        self.route_listeners = []
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='agent-region')
+
+    def subscribe_routes(self, callback):
+        self.route_listeners.append(callback)
+        return lambda: self.route_listeners.remove(callback) if callback in self.route_listeners else None
+
+    def _emit_route(self, event):
+        for callback in tuple(self.route_listeners):
+            try:
+                callback(event)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception('Route candidate notification failed')
+
+    def discard_event(self, job):
+        editor = self.editor()
+        self._emit_route(RouteCandidateEvent('discard', editor, editor.w, None, editor.profile,
+                                             job.lease.region_id, (), job.id))
 
     def current(self, job):
         return job.current(self.editor(), self.drc())
@@ -147,6 +178,20 @@ class JobRegistry:
                 )
             except Exception as exc:
                 self.audit_failure = str(exc)
+            if item.kind == 'route' and item.state == 'completed' and self.current(item) and item.result and self.route_listeners:
+                candidate = next((row for row in item.result if row.validation['status'] == 'ready'), item.result[0])
+                try:
+                    from ..editor import Editor
+                    from ..autoroute.preview import RoutingPreview
+                    editor = item.lease.editor
+                    preview_editor = Editor(editor.w, editor.profile, scope_id=item.lease.region_id)
+                    preview = RoutingPreview(preview_editor, item.routing, candidate)
+                    target = tuple(op.uid for op in preview.workspace.operations[len(editor.w.operations):])
+                    self._emit_route(RouteCandidateEvent('candidate', editor, editor.w, preview.workspace,
+                        editor.profile, item.lease.region_id, target, item.id, candidate.id))
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception('Route candidate preview failed')
             if item.kind != 'route' or item.state == 'failed':
                 # Validity uses a weak identity stamp; completed checks need no full snapshot.
                 item.source = item.profile = item.rules = None
@@ -211,6 +256,8 @@ class JobRegistry:
         return rules
 
     def cancel(self, job):
+        if job.kind == 'route':
+            self.discard_event(job)
         with job.state_lock:
             job.cancelled.set()
             job.state, job.message = 'cancelled', '任务已取消'

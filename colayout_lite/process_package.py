@@ -90,6 +90,10 @@ def portable(package):
         item=next((t for t in candidates if t['library']==p.native_technology_name and
                    (t['name'],t['definition'])==(item['name'],item['definition'])),item)
         if item not in templates:templates.append(item)
+    if p.parasitics and p.parasitics.surrogate and p.parasitics.surrogate.weights_path:
+        p=p.model_copy(update={'parasitics':p.parasitics.model_copy(
+            update={'surrogate':p.parasitics.surrogate.model_copy(update={'weights_path':None})}
+        )})
     p=p.model_copy(update={'guard_recipes':recipes,'guard_templates':templates,'validation':{'status':'shared_configuration'}})
     d=package.drc
     if d:d=d.model_copy(update={'provenance':{'configuration':'shared; verify server paths on this host'}})
@@ -116,6 +120,7 @@ def changes(before,after):
     if (old.guard_templates,old.guard_recipes)!=(new.guard_templates,new.guard_recipes):sections.append('保护环')
     if before.report_policy!=after.report_policy or old.schematic_summary_parameters!=new.schematic_summary_parameters:sections.append('摘要与报告')
     if before.agent_autoroute_enabled!=after.agent_autoroute_enabled:sections.append('Agent 自动布线权限')
+    if old.parasitics!=new.parasitics:sections.append('RC 寄生模型')
     text='变更：'+('、'.join(sections) if sections else '名称、说明或验证信息')
     from .mpp_recipe import available,native_templates
     def capabilities(profile):

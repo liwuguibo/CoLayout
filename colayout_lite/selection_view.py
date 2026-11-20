@@ -107,15 +107,20 @@ class SelectionView(QObject):
         self._closed=True;self.gesture=None;self.rubber=None
         self.window.scene.selectionChanged.disconnect(self.selection_changed)
 
+    def _owner_layer_visible(self,uid):
+        group=self.window.groups.get(uid)
+        if group is None:return True
+        return any(part.isVisible() and any(child.isVisible() for child in part.childItems()) for part in group.parts.values())
+
     def pick_id(self,pixel):
         w=self.window;self.refresh()
         hit=w.inspection.hit_pin(pixel)
         uid=hit['pin']['owner'] if hit else None
-        if uid in self.rows:return uid
+        if uid in self.rows and self._owner_layer_visible(uid):return uid
         uid=editable_at(w,pixel)
-        if uid in self.rows:return uid
+        if uid in self.rows and self._owner_layer_visible(uid):return uid
         for item in w.canvas.items(pixel.toPoint()):
-            if item.data(0) in self.rows:return item.data(0)
+            if item.data(0) in self.rows and self._owner_layer_visible(item.data(0)):return item.data(0)
         return None
 
     def begin(self,event):
@@ -144,7 +149,8 @@ class SelectionView(QObject):
         if not self.rubber and (position-g['start']).manhattanLength()<QApplication.startDragDistance():return True
         self.rubber=QRectF(g['start'],position).normalized()
         rect=w.canvas.mapToScene(self.rubber.toRect()).boundingRect()
-        hits=in_box(self.rows,((rect.left(),-rect.bottom()),(rect.right(),-rect.top())),g['mode'])
+        hits={uid for uid in in_box(self.rows,((rect.left(),-rect.bottom()),(rect.right(),-rect.top())),g['mode'])
+              if self._owner_layer_visible(uid)}
         g['preview']=hits | (g['old'] if g['add'] else set())
         self.count.setText(f'已选 {len(g["preview"])} 个对象')
         w.canvas.viewport().update();return True

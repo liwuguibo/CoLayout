@@ -91,6 +91,7 @@ class RegionTasks:
             raise LiteError('WORKSPACE_BUSY')
         if job.state != 'completed' or not self.registry.current(job):
             raise LiteError('ROUTING_STALE', '候选尚未完成或工作区已改变，请重检或重新生成。')
+        self.registry.discard_event(job)
         with self.actor(lease, args.expected_revision):
             result = job.routing.apply(e, args.candidate_id, self.drc_source())
             if not result['no_op']:

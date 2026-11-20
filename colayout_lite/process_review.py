@@ -136,15 +136,17 @@ def local_settings_review(service,package,source,connection):
     if source!=(entry.get('sample') or {}):return None
     current=service.load(package.technology.key)
     if package.sample_evidence!=current.sample_evidence:return None
-    # This deliberately includes factory definitions, evidence, permissions,
-    # native data and default geometry. No native input may hitchhike here.
-    if package.technology!=current.technology or not current.drc or not package.drc:return None
+    # Native qualification does not cover the independently reviewed RC model.
+    native_candidate=package.technology.model_copy(update={'parasitics':None})
+    native_current=current.technology.model_copy(update={'parasitics':None})
+    if native_candidate!=native_current or not current.drc or not package.drc:return None
     local_fields={'mim_capacitor','design_warnings','max_markers','local_halo_um'}
     if current.drc.model_dump(exclude=local_fields)!=package.drc.model_dump(exclude=local_fields):return None
     changed=sorted(name for name in local_fields if getattr(current.drc,name)!=getattr(package.drc,name))
     changed+=['report_policy'] if current.report_policy!=package.report_policy else []
     changed+=['notes'] if current.notes!=package.notes else []
     changed+=['agent_autoroute_enabled'] if current.agent_autoroute_enabled!=package.agent_autoroute_enabled else []
+    changed+=['parasitics'] if current.technology.parasitics!=package.technology.parasitics else []
     if not changed:return None # An explicit unchanged requalification still checks its sample.
     return {'version':VALIDATION_VERSION,'status':'passed','kind':'reviewed_local_settings',
             'configuration_key':package.technology.key,'previous_configuration_digest':current.fingerprint(),

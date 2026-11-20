@@ -45,6 +45,8 @@ flowchart LR
 | geometry*、materials*、conduction*、physical_connectivity.py | 几何事实与受支持的导通图，不编排 UI 或网络访问 |
 | drc/ | 本地规则、报告解析、异步服务器任务与检查证据 |
 | autoroute/、layout_helpers.py | 冻结算法输入、候选几何和共享组合动作 |
+| parasitic_models.py、parasitic_rc.py、parasitic_surrogate.py、parasitic_nn/、parasitic_workspace.py、parasitic_view.py | 已审核且有范围限制的 RC 系数与可选纯 NumPy 神经网络代理（含 3D 过孔聚类与节点电阻）、本地几何估算、黑盒安全的范围过滤与异步显示 |
+| wire_capture.py、wire_panel.py | 未确认的正交走线草稿、换层和过孔预览；确认时复用现有 Editor 单次事务 |
 | adapter.py、sync_checks.py、transactions.py | 原生源/依赖前提、事务日志和对账 |
 | transport.py、native_lane.py、skill/ | Bridge 边界、原生通道串行调度、CoLayout 自有 SKILL 内核 |
 | workspace_app.py、studio_window.py、studio_shell.py、presentation/ | 窗口生命周期、场景显示、任务回调和区域只读渲染 |
@@ -93,7 +95,7 @@ Qt 所属线程串行发布编辑。耗时查询、检查和批量操作使用�
 
 后台线程不能操作 Qt 控件，不能持有模型锁等待 GUI 回调，也不能在 GUI 线程阻塞等待自身事件。后台 Qt 测试使用带超时的 QEventLoop。关闭 Dock 只是隐藏；关闭所属窗口要释放订阅、定时器和回调，任务完成不能重新唤起已关闭窗口。
 
-缓存键必须包含相关几何、工艺和范围。画布与后台缓存仅用于加速，不能替代校验和事务证据。平移、缩放时应保持细节切换稳定，避免闪烁。
+缓存键必须包含相关几何、工艺和范围。画布与后台缓存仅用于加速，不能替代校验和事务证据。平移、缩放时应保持细节切换稳定，避免闪烁。RC 缓存还需包含独立的 `rc_model_digest`、模型适用范围和分析范围；电性系数变化不应使原生几何资格验证失效。
 
 ## 检查与完成验收
 

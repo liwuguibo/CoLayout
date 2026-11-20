@@ -19,6 +19,7 @@ def unselected_option(item,option):
 class PreviewGroup(QGraphicsItemGroup):
     def shape(self):
         if getattr(self,'exact_pick_shape',None) is not None:return self.exact_pick_shape
+        if not any(child.isVisible() for child in self.childItems()):return QPainterPath()
         if getattr(self,'border_only',False):
             path=QPainterPath();path.addRect(self.boundingRect());stroke=QPainterPathStroker();stroke.setWidth(1)
             return stroke.createStroke(path)
@@ -112,6 +113,7 @@ def add_label(scene, figure, style):
     text=figure['geometry'].get('text') or ''
     if not text or figure['geometry'].get('visible') is False:return None
     item=PreviewTextItem(text);item.setFont(QFont('Consolas',100));scene.addItem(item)
+    item.layer_name=style['lpp'][0]
     item.setBrush(QColor(*style['outline_rgb']))
     box=box_rect(figure['bbox']);own=item.boundingRect()
     orientation=figure['geometry'].get('orientation','R0')

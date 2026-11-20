@@ -8,8 +8,9 @@ from PySide6.QtWidgets import (QApplication,QVBoxLayout,QFormLayout,QKeySequence
 from .transactions import write_json_atomic
 from .presentation.dark_dialog import DarkDialog
 
-DEFAULTS={'fit':'F','up':'Ctrl+E','peek':'Ctrl','undo':'Ctrl+Z','undo_alt':'U','redo':'Ctrl+Y','redo_alt':'Ctrl+Shift+Z','rotate':'Ctrl+R'}
-KEY_ACTIONS={'fit':'适合窗口','up':'返回上层','undo':'撤销','undo_alt':'撤销（第二快捷键，可留空）','redo':'重做','redo_alt':'重做（兼容键）','rotate':'旋转 90°'}
+DEFAULTS={'fit':'F','up':'Ctrl+E','peek':'Ctrl','undo':'Ctrl+Z','undo_alt':'U','redo':'Ctrl+Y','redo_alt':'Ctrl+Shift+Z','rotate':'Ctrl+R','ruler':'K','clear_rulers':'Shift+K'}
+KEY_ACTIONS={'fit':'适合窗口','up':'返回上层','undo':'撤销','undo_alt':'撤销（第二快捷键，可留空）','redo':'重做','redo_alt':'重做（兼容键）','rotate':'旋转 90°','ruler':'标尺测距（可留空）','clear_rulers':'清除标尺（可留空）'}
+OPTIONAL_KEYS={'undo_alt','ruler','clear_rulers'}
 WHEEL_MODIFIERS={'Ctrl':Qt.KeyboardModifier.ControlModifier,'Alt':Qt.KeyboardModifier.AltModifier,
     'Shift':Qt.KeyboardModifier.ShiftModifier,'Ctrl+Shift':Qt.KeyboardModifier.ControlModifier|Qt.KeyboardModifier.ShiftModifier}
 EDIT_KEYS={'Delete','Backspace'}
@@ -17,14 +18,18 @@ EDIT_KEYS={'Delete','Backspace'}
 
 def validate(values):
     if set(values)-set(DEFAULTS) or not {'fit','up','peek'}<=set(values):raise ValueError('快捷键配置不完整')
-    # Do not steal U from an existing custom binding when upgrading a profile.
-    alternate=values.get('undo_alt','' if any(QKeySequence(v)==QKeySequence('U') for k,v in values.items() if k!='peek') else 'U')
-    values={**DEFAULTS,**values,'undo_alt':alternate}
+    # Do not steal U / K / Shift+K from an existing custom binding when upgrading a profile.
+    extras={}
+    for opt_key,default_seq in (('undo_alt','U'),('ruler','K'),('clear_rulers','Shift+K')):
+        if opt_key not in values:
+            taken=any(QKeySequence(v)==QKeySequence(default_seq) for k,v in values.items() if k!='peek')
+            extras[opt_key]='' if taken else default_seq
+    values={**DEFAULTS,**values,**extras}
     if values['peek'] not in WHEEL_MODIFIERS:raise ValueError('滚轮修饰键无效')
     result={'peek':values['peek']};used=set()
     for key in KEY_ACTIONS:
         seq=QKeySequence(values[key]);text=seq.toString(QKeySequence.SequenceFormat.PortableText)
-        if key=='undo_alt' and seq.isEmpty():result[key]='';continue
+        if key in OPTIONAL_KEYS and seq.isEmpty():result[key]='';continue
         if seq.isEmpty() or seq.count()!=1 or text in EDIT_KEYS or text=='Esc':raise ValueError('请输入一个有效按键组合；Delete、Backspace、Esc 为编辑保留键')
         if text in used:raise ValueError('快捷键不能重复')
         used.add(text);result[key]=text
@@ -49,8 +54,8 @@ class ShortcutManager(QObject):
         if event.type()==QEvent.Type.ShortcutOverride:
             focus=QApplication.focusWidget()
             if focus and (focus.window() is self.window or self.window.isAncestorOf(focus)) and isinstance(focus,(QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox)):
-                if event.modifiers()==Qt.KeyboardModifier.NoModifier or (event.key() in (Qt.Key.Key_Z,Qt.Key.Key_Y,Qt.Key.Key_R) and event.modifiers() in (Qt.KeyboardModifier.ControlModifier,Qt.KeyboardModifier.ControlModifier|Qt.KeyboardModifier.ShiftModifier)):
-                    event.accept();return True  # Typing F/Delete in a text field remains text editing.
+                if event.modifiers() in (Qt.KeyboardModifier.NoModifier,Qt.KeyboardModifier.ShiftModifier) or (event.key() in (Qt.Key.Key_Z,Qt.Key.Key_Y,Qt.Key.Key_R) and event.modifiers() in (Qt.KeyboardModifier.ControlModifier,Qt.KeyboardModifier.ControlModifier|Qt.KeyboardModifier.ShiftModifier)):
+                    event.accept();return True  # Typing F/Shift+K/Delete in a text field remains text editing.
         return False
 
     def bind(self,callbacks):self.callbacks=callbacks;self.apply(self.values)

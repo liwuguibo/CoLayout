@@ -2,7 +2,7 @@
 
 
 def cancel_drawing(window,except_tool=None):
-    for name in ('region_panel','guard_panel','rectangle_panel','pour_panel','native_routing_window_panel'):
+    for name in ('region_panel','guard_panel','rectangle_panel','pour_panel','native_routing_window_panel','wire_panel','ruler'):
         tool=getattr(window,name,None)
         if tool is not None and tool is not except_tool:
             callback=getattr(tool,'cancel_draw',None) or tool.cancel

@@ -184,7 +184,8 @@ class ProcessConfiguration:
                       'connection':str(paths['binding'].resolve()),'drc_profile':str(paths['drc'].resolve()),
                       'confirmed':True,'configured_sections':['technology','guards','report_policy']+
                         (['local_drc','design_warnings'] if package.drc else [])+
-                        (['remote_drc'] if package.drc and package.drc.remote else [])}
+                        (['remote_drc'] if package.drc and package.drc.remote else [])+
+                        (['parasitics'] if package.technology.parasitics else [])}
         entries[key]['notes']=package.notes
         entries[key]['agent_autoroute_enabled']=package.agent_autoroute_enabled
         if proposal:entries[key]['configuration_origin']='shared' if proposal.get('imported') else 'sample'

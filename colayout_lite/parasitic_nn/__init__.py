@@ -1,0 +1,56 @@
+"""Pure-NumPy Geo-Graph Residual MLP RC surrogate engine."""
+
+from .analytical_resistance import AnalyticalResistorEngine
+from .geometry_graph import (
+    DEFAULT_GRID_SNAP_UM,
+    EPS0_FF_PER_UM,
+    LayoutGraphExtractor,
+    RectangleElement,
+    StackupConfig,
+    SYNTHETIC_DIELECTRIC_ZONES,
+    SYNTHETIC_LAYER_ORDER,
+    SYNTHETIC_LAYER_STACK_SPEC,
+    SYNTHETIC_RSH_OHM_SQ,
+    SYNTHETIC_R_VIA_OHM,
+    calc_effective_eps_r,
+    decompose_rectilinear_polygon,
+    snap_grid,
+    synthetic_stackup,
+)
+from .model import GeoGraphRCEngine, load_npz_weights
+from .via_connectivity import (
+    ConnectivityResult,
+    SYNTHETIC_GDS_VIA_MAP,
+    SYNTHETIC_VIA_ORDER,
+    SYNTHETIC_VIA_STACK_SPEC,
+    ViaBridgeInfo,
+    ViaSpec,
+    resolve_layout_connectivity,
+)
+
+__all__ = [
+    'AnalyticalResistorEngine',
+    'ConnectivityResult',
+    'DEFAULT_GRID_SNAP_UM',
+    'EPS0_FF_PER_UM',
+    'GeoGraphRCEngine',
+    'LayoutGraphExtractor',
+    'RectangleElement',
+    'StackupConfig',
+    'SYNTHETIC_DIELECTRIC_ZONES',
+    'SYNTHETIC_GDS_VIA_MAP',
+    'SYNTHETIC_LAYER_ORDER',
+    'SYNTHETIC_LAYER_STACK_SPEC',
+    'SYNTHETIC_RSH_OHM_SQ',
+    'SYNTHETIC_R_VIA_OHM',
+    'SYNTHETIC_VIA_ORDER',
+    'SYNTHETIC_VIA_STACK_SPEC',
+    'ViaBridgeInfo',
+    'ViaSpec',
+    'calc_effective_eps_r',
+    'decompose_rectilinear_polygon',
+    'load_npz_weights',
+    'resolve_layout_connectivity',
+    'snap_grid',
+    'synthetic_stackup',
+]

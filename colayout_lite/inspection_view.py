@@ -151,8 +151,11 @@ class InspectionView:
         if query:self.request({'pin_id':pin_id})
 
     def hit_pin(self,pixel,*,include_preview=False):
-        context=(self.pin_key,QTransform(self.window.canvas.viewportTransform()),self._paint_revision)
-        hits=[h for h in self.pin_hits if (include_preview or not h['pin'].get('preview')) and h['rect'].contains(pixel)] if self._hits_context==context else []
+        hidden=getattr(self.window,'hidden_layers',())
+        context=(self.pin_key,QTransform(self.window.canvas.viewportTransform()),self._paint_revision,frozenset(hidden))
+        hits=[h for h in self.pin_hits if (include_preview or not h['pin'].get('preview'))
+              and not (hidden and not h['pin'].get('local') and all(layer in hidden for layer,_ in h['pin']['figures']))
+              and h['rect'].contains(pixel)] if self._hits_context==context else []
         if hits:return min(hits,key=lambda h:(not h['label'],(h['anchor']-pixel).manhattanLength()))
         # Large PIN polygons are clickable across their material, not only at
         # the label anchor. Never turn a native PIN drag into a device move.
@@ -162,10 +165,12 @@ class InspectionView:
             point=inverse.map(pixel)
             for record in self.records:
                 pin=record['pin']
+                if hidden and not pin.get('local') and all(layer in hidden for layer,_ in pin['figures']):continue
                 geometry=facts(record)
                 if not geometry.bounds.contains(point):continue
                 if (pin.get('preview') and not include_preview) or not detail_level(pin,tr,record['paths'],pin['net']==self.focus_net and self.focus_net is not None,geometry):continue
-                if any(path.contains(point) for (layer,g),path in zip(pin['figures'],record['paths']) if layer not in pin.get('noninteractive_layers',())):
+                if any(path.contains(point) for (layer,g),path in zip(pin['figures'],record['paths'])
+                       if layer not in pin.get('noninteractive_layers',()) and (pin.get('local') or layer not in hidden)):
                     return {'pin':pin,'anchor':pixel,'rect':QRectF(pixel.x()-2,pixel.y()-2,4,4),'label':False}
         return None
 
@@ -193,6 +198,7 @@ class InspectionView:
             if uid not in objects or not visible.visible(uid):continue
             obj=objects[uid]
             layer=getattr(source,'style',{}).get('lpp',[None])[0]
+            if layer in getattr(w,'hidden_layers',()):continue
             # A well may be highlighted by a connected metal, but never starts
             # an inspection. Ordinary body selection/drag remains unchanged.
             if layer in rules.wells:continue
@@ -298,12 +304,17 @@ class InspectionView:
             visual=w.canvas.drag_visual
             human=getattr(w,'human',None)
             preview_pins=human.preview_pins if human else None
+            hidden_layers=frozenset(getattr(w,'hidden_layers',()))
             key=(self._pin_geometry_revision,self._paint_revision,QTransform(tr),viewport.width(),viewport.height(),w.canvas.devicePixelRatioF(),
-                colors,dim,object_dim,selected_ids,self.focus_net,(id(visual),visual.delta) if visual else None,
+                colors,dim,object_dim,selected_ids,self.focus_net,hidden_layers,(id(visual),visual.delta) if visual else None,
                 tuple((uid,p.bbox) for uid,p in preview_pins.items()) if preview_pins else None,
                 human.preview_bounds if preview_pins else None)
             def render(target):
-                records=[visual.pin_record(r) for r in self.records] if visual else self.records
+                records=self.records
+                if hidden_layers:
+                    records=[r for r in records if r['pin'].get('local') or active(r['pin'])
+                             or not all(layer in hidden_layers for layer,_ in r['pin']['figures'])]
+                if visual:records=[visual.pin_record(r) for r in records]
                 if preview_pins:
                     from shapely.geometry import box
                     records=[prepared_record({**r['pin'],'boundary_bbox':human.preview_bounds,'owner_bbox':human.preview_bounds},
@@ -312,7 +323,7 @@ class InspectionView:
                 return render_pins(target,tr,viewport,records,color_for,active,
                     label_background=colors.pin_label_fill,label_style=colors.pin_label_style)
             self.pin_hits=self._pin_frame.paint(painter,key,render)
-            self._hits_context=None if visual or preview_pins else (self.pin_key,QTransform(tr),self._paint_revision)
+            self._hits_context=None if visual or preview_pins else (self.pin_key,QTransform(tr),self._paint_revision,hidden_layers)
             if self.trace and self.trace['short_nets']:
                 from .conflict_overlay import paint
                 paint(painter,tr,viewport,self.conflict_points,colors.pin_error)

@@ -31,6 +31,7 @@ class StudioCommands(QObject):
             self.add(key,text,lambda k=key:window.human.command(k),glyph,enabled=lambda k=key:self.can_transform(k))
         self.add('dissolve','解散操作区',window.selection_ui.dissolve_selected,'region',enabled=lambda:window.selection_ui.dissolve_button.isEnabled())
         self.add('copy_id','复制 ID',self.copy_ids,'copy',enabled=lambda:bool(self.copy_targets()))
+        self.add('copy_task_context','复制任务上下文',self.copy_task_context,'copy',enabled=self.can_copy_task_context)
         self.add('shortcuts','快捷键设置',window.shortcuts.edit,'settings')
         self.add('activity','操作记录与错误详情',window.activity.show,'more')
         from .region_tools import target_region
@@ -39,15 +40,19 @@ class StudioCommands(QObject):
         self.add('region_drc_local','操作区 · 本地 DRC',lambda:self.check_region('local'),'check',enabled=region_ready)
         self.add('region_drc_remote','操作区 · 服务器全规则 DRC',lambda:self.check_region('calibre'),'check',enabled=region_ready)
         self.add('clear_net','清除网络高亮',window.inspection.clear_trace,'inspect')
+        self.add('ruler','标尺',window.ruler.start_or_toggle,'ruler')
+        self.add('clear_rulers','清除标尺',window.ruler.clear_all,'delete')
         self.add('autoroute','自动布线',self.show_routing,'route')
+        self.add('parasitics','RC 寄生影响',window.parasitics.toggle,'inspect')
         from .agent_tools.app import toggle as show_agent
         self.add('agent_api','Agent',lambda:show_agent(window),'inspect')
         from .reference_cases_panel import show as show_cases
         self.add('reference_cases','参考案例库…',lambda:show_cases(window),'circuit')
         self.add('guard','保护环',self.show_guard,'region',enabled=self.can_edit_scope,idle=True)
         self.add('rectangle','矩形',self.show_rectangle,'rectangle',enabled=self.can_edit_scope)
+        self.add('wire','画线',self.show_wire,'route',enabled=self.can_edit_scope)
         self.add('pour','铺铜',self.show_pour,'pour',enabled=self.can_edit_scope)
-        for key in ('agent_api','autoroute'):self.actions[key].setCheckable(True)
+        for key in ('agent_api','autoroute','parasitics','wire','ruler'):self.actions[key].setCheckable(True)
         self.refresh()
 
     def add(self,key,text,callback,glyph,*,enabled=lambda:True,idle=False):
@@ -94,8 +99,21 @@ class StudioCommands(QObject):
         from .autoroute.workbench import selected_region
         routing=getattr(w,'routing_workbench',None)
         panel=routing.panels.get((id(w.editor),selected_region(w))) if routing else None
-        for key,dock in (('agent_api',agent_dock),('autoroute',panel.dock if panel else None)):
-            with QSignalBlocker(self.actions[key]):self.actions[key].setChecked(bool(dock and not dock.isHidden()))
+        wire_checked=bool(
+            (hasattr(w,'wire_popup') and w.wire_popup.isVisible())
+            or (hasattr(w,'wire_panel') and w.wire_panel.capture.active)
+            or (hasattr(w,'wire_dock') and not hasattr(w,'wire_popup') and not w.wire_dock.isHidden())
+        )
+        ruler_checked=bool(getattr(w,'ruler',None) and w.ruler.active)
+        states={
+            'agent_api':bool(agent_dock and not agent_dock.isHidden()),
+            'autoroute':bool(panel and not panel.dock.isHidden()),
+            'parasitics':not w.parasitics.dock.isHidden(),
+            'wire':wire_checked,
+            'ruler':ruler_checked,
+        }
+        for key,checked in states.items():
+            with QSignalBlocker(self.actions[key]):self.actions[key].setChecked(checked)
 
     def can_edit_scope(self):
         e=self.window.editor
@@ -140,6 +158,51 @@ class StudioCommands(QObject):
         w=self.window;ids=self.copy_targets()
         QApplication.clipboard().setText('\n'.join(ids));w.status.setText(f'已复制 {len(ids)} 个对象 ID。')
 
+    def can_copy_task_context(self):
+        return bool(self.window.editor)
+
+    def copy_task_context(self):
+        w=self.window;e=w.editor
+        if not e:return
+        scale=e.profile.dbu_per_micron;local=e.w.local_data;ids=w.human.ids()
+        def fmt_box(bbox):
+            (x0,y0),(x1,y1)=bbox
+            return f'({x0/scale:g}, {y0/scale:g}) .. ({x1/scale:g}, {y1/scale:g}) µm'
+        target_rid=ids[0] if len(ids)==1 and ids[0] in local.regions else e.scope_id
+        region=local.regions.get(target_rid) if target_rid else None
+        scope_for_guides=region.id if region else e.scope_id
+        lines=[f'# CoLayout 任务上下文 · {e.w.baseline.library}/{e.w.baseline.cell}']
+        if region:
+            lines.append(f'- 目标操作区: {region.name} (`{region.id}`)')
+            lines.append(f'- 范围: {fmt_box(region.bbox)} · 接口模式: `{region.pin_mode}`')
+            if region.note:lines.append(f'- 操作区备注: {region.note}')
+            if region.pins:
+                lines.append('- 接口 PIN:')
+                for pin in region.pins.values():
+                    cx=(pin.bbox[0][0]+pin.bbox[1][0])*0.5/scale
+                    cy=(pin.bbox[0][1]+pin.bbox[1][1])*0.5/scale
+                    lines.append(f'  - `{pin.name}` (`{pin.id}`): net=`{pin.net}`, layer_mode=`{pin.layer_mode}`, center=({cx:g}, {cy:g}) µm')
+        else:
+            lines.append('- 当前作用域: 顶层 (`scope_id = null`)')
+        markups=[m for m in local.markups.values() if m.scope_id==scope_for_guides]
+        if markups:
+            lines.append('- 定位框 (Markup):')
+            for m in markups:
+                note=f' · {m.text}' if m.text else ''
+                lines.append(f'  - `{m.id}`: {fmt_box(m.bbox)}{note}')
+        keepouts=[k for k in local.keepouts.values() if k.scope_id==scope_for_guides]
+        if keepouts:
+            lines.append('- 禁布区 (Keepout):')
+            for k in keepouts:
+                layers_desc=', '.join(k.layers) if k.layers else '全部层'
+                note=f' · {k.note}' if k.note else ''
+                lines.append(f'  - `{k.id}`: {fmt_box(k.bbox)} · layers=[{layers_desc}]{note}')
+        extra_ids=[uid for uid in ids if uid!=target_rid]
+        if extra_ids:
+            lines.append('- 当前选中对象 ID: '+', '.join(f'`{uid}`' for uid in extra_ids))
+        QApplication.clipboard().setText('\n'.join(lines))
+        w.status.setText('已复制任务上下文到剪贴板，可直接粘贴给布局 Agent。')
+
     def show_drc(self):
         self.check_region()
 
@@ -161,6 +224,10 @@ class StudioCommands(QObject):
 
     def show_rectangle(self):
         from .rectangle_panel import show
+        show(self.window)
+
+    def show_wire(self):
+        from .wire_panel import show
         show(self.window)
 
     def show_pour(self):

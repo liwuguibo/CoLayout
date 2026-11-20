@@ -28,6 +28,8 @@ _PATHS={
     'inspect':'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
     'panels':'<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M15 4v16"/>',
     'hierarchy':'<path d="M5 4v14h6M5 9h6"/><rect x="11" y="6" width="9" height="6" rx="1"/><rect x="11" y="15" width="9" height="6" rx="1"/>',
+    'layers':'<path d="M12 3 3 8l9 5 9-5-9-5ZM3 12.5l9 5 9-5M3 17l9 5 9-5"/>',
+    'ruler':'<path d="M3 17 17 3l4 4L7 21 3 17Zm3.5-3.5 2 2m1.5-5.5 2.5 2.5m1.5-5.5 2 2"/>',
     'more':'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
     'close':'<path d="m6 6 12 12M18 6 6 18"/>',
     'back':'<path d="M20 12H4m7-7-7 7 7 7"/>',

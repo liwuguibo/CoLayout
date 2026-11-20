@@ -108,7 +108,7 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 
 [NativeTransport](../../colayout_lite/transport.py) 在构造时连接，首次使用时加载 NATIVE_SCRIPTS，编码数据而非任意代码。colayout_lite/skill 是 CoLayout 的原生协议实现，上游 Python 依赖单独安装。修改协议时同步处理两端和失败回归，保持 wire version、回执结构与 UID 核对兼容。
 
-配对导入允许一种明确的无绑定例外：原生属性 `lxDummy` 为布尔真、没有子实例、端子非空且所有端子及成员都属于同一非空原生网络的 dummy。`circuit.codec` 保留它的几何、UID、属性、端子和物理网络，但不创建虚假的原理图实例或绑定。名称、ignore 标志和显示网络别名不能作为例外依据。信号驱动的 dummy、普通无绑定器件、缺失端子网络及损坏的绑定路径仍被拒绝；原生对应检查与读取期间源稳定性检查仍必须通过。现有工作区和协议格式不变，参考绑定列表不必覆盖这些已确认的 dummy。回归入口为 [test_native_dummy_import.py](../../tests_lite/test_native_dummy_import.py)，包括导入、存档恢复、刷新及失败后保留状态。
+配对导入允许一种明确的无绑定 Layout 例外：原生属性 `lxDummy` 为布尔真、没有子实例、端子非空且所有端子及成员都属于同一非空原生网络的 dummy。`circuit.codec` 保留它的几何、UID、属性、端子和物理网络，但不创建虚假的原理图实例或绑定。名称、ignore 标志和显示网络别名不能作为例外依据。信号驱动的 dummy、普通无绑定 Layout 器件、缺失端子网络及损坏的绑定路径仍被拒绝；原生对应检查（允许尚未摆入 Layout 的原理图器件产生 IC618 `INFO (LX-1001)` 诊断并原样保留于 `native_check.report`）与读取期间源稳定性检查仍必须通过。现有工作区和协议格式不变，参考绑定列表不必覆盖这些已确认的 dummy。回归入口为 [test_native_dummy_import.py](../../tests_lite/test_native_dummy_import.py)，包括导入、存档恢复、刷新及失败后保留状态。
 
 ## 6. 检查、过滤与工艺审核
 
@@ -122,11 +122,13 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 
 ## 7. 渲染与诊断
 
-[Canvas](../../colayout_lite/presentation/canvas.py)、[layout_scene.py](../../colayout_lite/presentation/layout_scene.py)、owner_graphics.py、view_scope.py、vector_preview.py 分别处理交互、对象可见性和矢量缓存。SnapshotCanvas 不创建主 Editor/窗口即可生成区域截图。按改变的 owner 和相关工艺/范围失效缓存；显示折叠不等于权限或 DRC 黑盒。
+[Canvas](../../colayout_lite/presentation/canvas.py)、[layout_scene.py](../../colayout_lite/presentation/layout_scene.py)、owner_graphics.py、view_scope.py、vector_preview.py、[layer_palette.py](../../colayout_lite/layer_palette.py)、[ruler_tool.py](../../colayout_lite/ruler_tool.py) 分别处理交互、对象与按层可见性、矢量缓存及纯视图标尺。`Window.hidden_layers` 与标尺仅作用于人端视图和点选过滤，SnapshotCanvas 不创建主 Editor/窗口即可生成不受人端隐藏层影响的区域截图。按改变的 owner 和相关工艺/范围失效缓存；显示折叠或图层隐藏不等于权限或 DRC 黑盒。
 
 [circuit/panel.py](../../colayout_lite/circuit/panel.py)、reference_data.py、reference_table.py 实现本地原理图参考。参考或模态窗口卡顿时核查重复信号连接、所属线程计算、展开/选择事件与延迟刷新。
 
 [diagnostics.install](../../colayout_lite/diagnostics.py) 在 artifacts/lite/diagnostics 写 Python/Qt/fault 日志。[UiWatchdog](../../colayout_lite/ui_watchdog.py) 在 Qt 无响应时写 PID 对应的 ui-stall 线程栈。Agent 运行记录位于当前文档旁 agent-runs；原生日志遵循 connection.state_directory；DRC 任务位于 artifacts/drc/jobs。本机查看，公开前脱敏。
+
+[Editor.subscribe_commits](../../colayout_lite/editor.py) 在不改变原变化 UID 订阅的前提下提供不可变 before/after 事件，RC 增量以此为基准。`rc_model_digest` 独立于原生资格 `policy_key`，RC 审核和可选 xRC 证据分别管理。RC 不对黑盒做 full 提取，只追加公开 PIN 的 Physical 行。交互采用定频采样而不是每次事件取消，配合协作取消和顶点/配对预算。
 
 ## 8. 修改位置与已有回归对应关系
 
@@ -142,10 +144,11 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 | 保护环和原生豁免 | [test_mpp_sample_choppability.py](../../tests_lite/test_mpp_sample_choppability.py)、[test_guard_ports.py](../../tests_lite/test_guard_ports.py)、[test_native_routing_window_router.py](../../tests_lite/test_native_routing_window_router.py) |
 | 过孔组合动作／布线 | [test_auto_vias.py](../../tests_lite/test_auto_vias.py)、[test_via_landing_intent.py](../../tests_lite/test_via_landing_intent.py)、[test_layout_helpers.py](../../tests_lite/test_layout_helpers.py)、[test_routes.py](../../tests_lite/test_routes.py) |
 | 铺铜 | [test_pour.py](../../tests_lite/test_pour.py)：显式目标、障碍间距、正交输出、L/U 凹多边形、原子撤销、Agent 后台采用、矩形二级菜单及 Qt 拖框 |
+| 本地 RC 与画线草稿 | [test_parasitic_rc.py](../../tests_lite/test_parasitic_rc.py)、[test_parasitic_neural.py](../../tests_lite/test_parasitic_neural.py)、[test_parasitic_process.py](../../tests_lite/test_parasitic_process.py)、[test_parasitic_workspace.py](../../tests_lite/test_parasitic_workspace.py)、[test_parasitic_view.py](../../tests_lite/test_parasitic_view.py)、[test_wire_capture.py](../../tests_lite/test_wire_capture.py)、[test_parasitic_agent.py](../../tests_lite/test_parasitic_agent.py)：单位、去重、模型范围、E(2) 不变性与过孔桥接代理推理、黑盒 PIN、持续刷新生命周期、前后增量与不可变 Agent 事件 |
 | 服务器任务／报告存储 | [test_drc_jobs.py](../../tests_lite/test_drc_jobs.py)、[test_drc_job_storage.py](../../tests_lite/test_drc_job_storage.py)、[test_drc_hierarchy_scope.py](../../tests_lite/test_drc_hierarchy_scope.py)；解析语法改变时补专项报告 fixture |
 | 初始化与客户端 | [test_bootstrap_portability.py](../../tests_lite/test_bootstrap_portability.py)、[test_release_boundary.py](../../tests_lite/test_release_boundary.py)、[test_client_parallel_replay.py](../../tests_lite/test_client_parallel_replay.py)、[test_customer_cli_uid.py](../../tests_lite/test_customer_cli_uid.py)、`tests_lite/test_linux_portability.py` |
 | 工艺采集／配置 | [test_process_setup.py](../../tests_lite/test_process_setup.py)、[test_onboarding.py](../../tests_lite/test_onboarding.py)；schema 改变时补审核/导出测试 |
-| GUI／渲染 | [test_translation_cache.py](../../tests_lite/test_translation_cache.py)、[test_compact_contrast.py](../../tests_lite/test_compact_contrast.py)、[test_gui_streams.py](../../tests_lite/test_gui_streams.py)；仍需实际 Qt/pythonw 和代表场景 |
+| GUI／渲染 | [test_translation_cache.py](../../tests_lite/test_translation_cache.py)、[test_compact_contrast.py](../../tests_lite/test_compact_contrast.py)、[test_gui_streams.py](../../tests_lite/test_gui_streams.py)、[test_gui_ergonomics.py](../../tests_lite/test_gui_ergonomics.py)；仍需实际 Qt/pythonw 和代表场景 |
 
 新增编辑动作通常涉及共享命令/模型、权限/范围、契约/发现、同步与异步路径、UI 适配及生成的客户端 schema。修 bug 只改必要部分，同时验证两类入口一致。
 

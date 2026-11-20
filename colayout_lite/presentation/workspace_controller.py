@@ -100,6 +100,8 @@ class WorkspaceController:
             )
         host.workspace_actions = WorkspaceActions(host.editor)
         if not reuse:
+            if not preserve:
+                host.hidden_layers = set()
             host.scene.clear()
             host.groups = {}
             host.scene_rebuilds += 1

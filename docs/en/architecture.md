@@ -43,6 +43,8 @@ A separate setup agent uses Bridge to collect a sample and submit a ProcessPacka
 | geometry*, materials*, conduction*, physical_connectivity.py | Geometric evidence and supported conductive graph; no UI or network orchestration |
 | drc/ | Supported local rules, report parsing, asynchronous server tasks and result evidence |
 | autoroute/, layout_helpers.py | Frozen algorithm input, proposed geometry and shared composed operations |
+| parasitic_models.py, parasitic_rc.py, parasitic_surrogate.py, parasitic_nn/, parasitic_workspace.py, parasitic_view.py | Reviewed bounded RC coefficients and optional pure-NumPy neural surrogate (with 3D via clustering and nodal resistance), local geometry estimates, blackbox-safe scope filtering and asynchronous presentation |
+| wire_capture.py, wire_panel.py | Uncommitted orthogonal route drafts, layer transitions and via previews; one existing editor transaction on confirmation |
 | adapter.py, sync_checks.py, transactions.py | Source/dependency preconditions, native transaction journal and reconciliation |
 | transport.py, native_lane.py, skill/ | Explicit Bridge boundary, serialized native lanes and CoLayout-owned SKILL kernel |
 | workspace_app.py, studio_window.py, studio_shell.py, presentation/ | Window lifecycle, scene presentation, task callbacks and scoped read-only rendering |
@@ -91,7 +93,7 @@ The Qt owner thread publishes edits serially. Expensive read/check/batch work us
 
 Do not call Qt widgets from workers, hold model locks while waiting for GUI callbacks, or run a nested blocking wait on the GUI thread. Qt background tests must pump a QEventLoop. Closing a dock hides it; closing its owning window disposes subscriptions, timers and task callbacks. Results must not resurrect a closed window.
 
-Cache keys must include relevant geometry, technology and scope. Worker/canvas caches are disposable accelerators; they cannot replace validation or transaction records. Keep pixel/detail transitions stable during pan/zoom.
+Cache keys must include relevant geometry, technology and scope. Worker/canvas caches are disposable accelerators; they cannot replace validation or transaction records. Keep pixel/detail transitions stable during pan/zoom. RC cache keys additionally include the independent `rc_model_digest`, model range and analysis scope; changing electrical coefficients never silently invalidates native geometry qualification.
 
 ## Checks and completion
 

@@ -129,31 +129,41 @@ def draw_owner(self, uid, figures=None):
         )
         for item in group.childItems():
             item.setToolTip(label)
-    if obj.shape or obj.mpp:
+    if obj.read_only_reason == 'master_unresolved':
+        for part in group.parts.values():
+            part.border_only = True
+    apply_item_visibility(self, obj, group)
+
+
+def apply_item_visibility(self, obj, group):
+    hidden = getattr(self, 'hidden_layers', ())
+    show_internal = self.internal.isChecked() or not obj or obj.kind not in ('inst', 'mosaic')
+    show_cuts = self.cuts.isChecked()
+    patterned = self.pattern.isChecked()
+    for item in group.childItems():
+        if isinstance(item, NativeFigureItem):
+            item.patterned = patterned
+            visible = (
+                (item.data(1) == 'interface' or show_internal)
+                and (show_cuts or not item.style['is_cut'])
+                and item.style['lpp'][0] not in hidden
+            )
+            item.setVisible(visible)
+            item.update()
+        elif item.data(1) not in ('instance_outline', 'interface'):
+            layer = getattr(item, 'layer_name', None)
+            item.setVisible(show_internal and layer not in hidden)
+    if obj and (obj.shape or obj.mpp):
         # QGraphicsItemGroup's default shape is its bounding rectangle.
-        # Layer containers must not intercept the empty interior of a bend;
-        # selection, drag and net inspection all use the scene hit ordering.
+        # Layer containers must not intercept the empty interior of a bend,
+        # nor intercept clicks when their layer is hidden.
         for part in group.parts.values():
             pick = QPainterPath()
             pick.setFillRule(Qt.FillRule.WindingFill)
             for child in part.childItems():
-                pick.addPath(child.mapToParent(child.shape()))
+                if child.isVisible():
+                    pick.addPath(child.mapToParent(child.shape()))
             part.exact_pick_shape = pick
-    if obj.read_only_reason == 'master_unresolved':
-        for part in group.parts.values():
-            part.border_only = True
-    for item in group.childItems():
-        if item.data(1) not in ('instance_outline', 'interface'):
-            item.setVisible(self.internal.isChecked() or obj.kind not in ('inst', 'mosaic'))
-        if isinstance(item, NativeFigureItem):
-            item.setVisible(
-                (
-                    item.data(1) == 'interface'
-                    or self.internal.isChecked()
-                    or obj.kind not in ('inst', 'mosaic')
-                )
-                and (self.cuts.isChecked() or not item.style['is_cut'])
-            )
 
 
 def refresh_graphics(self, changed, objects, *, force=False):

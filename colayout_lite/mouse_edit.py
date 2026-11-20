@@ -115,6 +115,8 @@ class MouseEdit:
             if not movable_selection(w,self.armed['ids']):
                 self.armed['inspect_only']=True
                 if not self.armed.get('frame_foreground'):w.inspection.pick(scene.x(),-scene.y())
+            elif hasattr(w,'parasitics'):
+                w.parasitics.begin_transform(self.armed['ids'],w.editor.w)
         return True
 
     def valid_context(self):
@@ -170,6 +172,7 @@ class MouseEdit:
                 if self.visual is None:self.visual=DragVisual(w,r['ids'])
                 self.visual.move((dx,dy))
             r['delta']=(dx,dy)
+            if 'ids' in r and hasattr(w,'parasitics'):w.parasitics.preview_transform(r['ids'],(dx,dy))
         except Exception as exc:self.error=str(exc);w.status.setText(self.error)
         w.canvas.setCursor(Qt.CursorShape.ForbiddenCursor if self.error else Qt.CursorShape.ClosedHandCursor)
         w.canvas.viewport().update();return True
@@ -202,7 +205,9 @@ class MouseEdit:
                 api.adjust_pin(rid,pid,cx+dx,cy+dy,expected_revision=r['revision'])
                 w.inspection.focus_pin(rid,pid,query=False)
             elif 'resize' in r:BoundsEdit(w.editor).resize(r['resize'],r['result_bounds'],expected_revision=r['revision'])
-            else:api.transform(r['ids'],delta=(dx,dy),expected_revision=r['revision'])
+            else:
+                api.transform(r['ids'],delta=(dx,dy),expected_revision=r['revision'])
+                if hasattr(w,'parasitics'):w.parasitics.finish_transform()
         except Exception as exc:w.status.setText(str(exc))
         finally:self.cancel();self.refresh_selection()
         return True
@@ -210,6 +215,7 @@ class MouseEdit:
     def cancel(self):
         if self.visual:self.visual.close();self.visual=None
         self.armed=None;self.dragging=False;self.pin_selected=None;self.preview_pins={};self.preview_bounds=None;self.error=None
+        if hasattr(self.window,'parasitics'):self.window.parasitics.cancel_transform()
         self.window.canvas.unsetCursor();self.window.canvas.viewport().update()
 
     def can_resize(self):
@@ -268,7 +274,8 @@ class MouseEdit:
             action.triggered.connect(lambda:self.copy_pin(*pin_target));menu.addSeparator()
         if studio:
             menu.addAction('属性',studio.show_properties)
-            studio.commands.refresh();menu.addAction(studio.commands.actions['copy_id']);menu.addSeparator()
+            studio.commands.refresh();menu.addAction(studio.commands.actions['copy_id'])
+            menu.addAction(studio.commands.actions['copy_task_context']);menu.addSeparator()
             if len(self.ids())==1 and self.ids()[0] in self.window.editor.w.local_data.regions:
                 for key in ('region_drc_local','region_drc_remote'):menu.addAction(studio.commands.actions[key])
                 menu.addSeparator()

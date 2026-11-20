@@ -85,15 +85,17 @@ def hidden_geometry_only(window, previous):
 def refresh(window):
     if window.editor:
         editor=window.editor;manager=getattr(editor,'work_sessions',None);sessions=manager.snapshots() if manager else ()
+        hidden_layers=frozenset(getattr(window,'hidden_layers',()))
         cache_context=(id(editor),id(editor.w),id(editor.profile),editor.scope_id,window.canvas.blackbox_peek,palette(window.canvas),
                  hasattr(window,'inspection'),window.pattern.isChecked(),window.cuts.isChecked(),window.internal.isChecked(),
+                 hidden_layers,
                  tuple((s.id,s.pose_revision,s.owner) for s in sessions),
                  getattr(getattr(window,'diagnostics',None),'native_routing_window_id',None))
         prior=getattr(window,'_overlay_context',None)
         if (prior and cache_context[:1]+cache_context[2:]==prior[:1]+prior[2:]
                 and cache_context!=prior and hidden_geometry_only(window,getattr(window,'_overlay_source',None))):
             window._overlay_context=cache_context;window._overlay_source=editor.w
-            window.canvas.display_scope((editor.w,id(editor),window.pattern.isChecked(),window.cuts.isChecked(),window.internal.isChecked()),
+            window.canvas.display_scope((editor.w,id(editor),window.pattern.isChecked(),window.cuts.isChecked(),window.internal.isChecked(),hidden_layers),
                 (editor.scope_id,window.canvas.blackbox_peek),set())
             window.canvas.viewport().update();return
         if cache_context==getattr(window,'_overlay_context',None):
@@ -175,7 +177,7 @@ def refresh(window):
         if previous.get(uid,(True,1.0))!=(show,opacity):changed.add(uid)
     window._region_visible={uid:(uid in visible,next(iter(g.parts.values())).opacity() if g.parts else 1.0) for uid,g in window.groups.items()}
     window._displayed_uids=visible;window._peek_uids=peeked;window._displayed_regions=[r.id for r in shown]+([scope] if scope else [])
-    window.canvas.display_scope((window.editor.w,id(window.editor),window.pattern.isChecked(),window.cuts.isChecked(),window.internal.isChecked()),
+    window.canvas.display_scope((window.editor.w,id(window.editor),window.pattern.isChecked(),window.cuts.isChecked(),window.internal.isChecked(),frozenset(getattr(window,'hidden_layers',()))),
         (scope,window.canvas.blackbox_peek),changed)
     objects=projected(window.editor.w)
     for uid in sorted(visible):

@@ -8,6 +8,8 @@ from ..preview import PreviewView
 
 class Canvas(PreviewView):
     clicked_at = Signal(float, float)
+    cursor_moved = Signal(float, float)
+    cursor_left = Signal()
     inspection_clicked = Signal(float, float)
     region_picked = Signal(object)
     region_cancelled = Signal()
@@ -24,10 +26,15 @@ class Canvas(PreviewView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         self.region_select = False
         self.drc_overlay = None
+        self.parasitic_overlay = None
         self.routing_overlay = None
+        self.wire_overlay = None
         self.guard_overlay = None
+        self.ruler_overlay = None
         self.blackbox_peek = 0
         self.inspection_overlay = None
         self.peek_modifiers = Qt.KeyboardModifier.ControlModifier
@@ -130,6 +137,8 @@ class Canvas(PreviewView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        pt = self.mapToScene(event.position().toPoint())
+        self.cursor_moved.emit(pt.x(), -pt.y())
         if self._pan_last is not None:
             from ..camera import pan_by
 
@@ -163,7 +172,9 @@ class Canvas(PreviewView):
         if event.button() == self._pan_button and self._pan_last is not None:
             self._pan_last = None
             self._pan_button = None
-            if self.region_select:
+            ruler_active = getattr(getattr(self.window(), 'ruler', None), 'active', False)
+            wire_active = getattr(getattr(getattr(self.window(), 'wire_panel', None), 'capture', None), 'active', False)
+            if self.region_select or ruler_active or wire_active:
                 self.setCursor(Qt.CursorShape.CrossCursor)
             else:
                 self.unsetCursor()
@@ -207,6 +218,10 @@ class Canvas(PreviewView):
             pt = self.mapToScene(self._normal_press.toPoint())
             self.inspection_clicked.emit(pt.x(), -pt.y())
         self._normal_press = None
+
+    def leaveEvent(self, event):
+        self.cursor_left.emit()
+        super().leaveEvent(event)
 
     def viewportEvent(self, event):
         # CustomContextMenu dispatch bypasses contextMenuEvent, so consume the
@@ -270,10 +285,22 @@ class Canvas(PreviewView):
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        if self.parasitic_overlay:
+            painter = QPainter(self.viewport())
+            try:
+                self.parasitic_overlay(painter)
+            finally:
+                painter.end()
         if self.routing_overlay:
             painter = QPainter(self.viewport())
             try:
                 self.routing_overlay(painter)
+            finally:
+                painter.end()
+        if self.wire_overlay:
+            painter = QPainter(self.viewport())
+            try:
+                self.wire_overlay(painter)
             finally:
                 painter.end()
         if self.drc_overlay:
@@ -304,5 +331,11 @@ class Canvas(PreviewView):
             painter = QPainter(self.viewport())
             try:
                 self.guard_overlay(painter)
+            finally:
+                painter.end()
+        if self.ruler_overlay:
+            painter = QPainter(self.viewport())
+            try:
+                self.ruler_overlay(painter)
             finally:
                 painter.end()
