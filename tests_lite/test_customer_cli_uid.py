@@ -20,11 +20,17 @@ def cli(monkeypatch):
     return module,requests
 
 
-@pytest.mark.parametrize('kind',['layout','reference'])
+@pytest.mark.parametrize('kind',['layout','reference','parasitics'])
 def test_repeated_uid_alias_queries_all_objects(cli,monkeypatch,kind):
     module,requests=cli
     monkeypatch.setattr(sys,'argv',['api.py','inspect',kind,'--uid','A','--uid','B','--uid','A'])
     module.main();assert requests==[('inspect_region',{'kind':kind,'uids':['A','B']})]
+
+
+def test_parasitics_cli_net_and_radius_flags(cli,monkeypatch):
+    module,requests=cli
+    monkeypatch.setattr(sys,'argv',['api.py','inspect','parasitics','--net','CLK_P','--radius-um','12'])
+    module.main();assert requests==[('inspect_region',{'kind':'parasitics','net':'CLK_P','analysis_radius_um':12.0})]
 
 
 def test_single_net_uid_keeps_target_semantics(cli,monkeypatch):

@@ -45,7 +45,7 @@ flowchart LR
 | geometry*、materials*、conduction*、physical_connectivity.py | 几何事实与受支持的导通图，不编排 UI 或网络访问 |
 | drc/ | 本地规则、报告解析、异步服务器任务与检查证据 |
 | autoroute/、layout_helpers.py | 冻结算法输入、候选几何和共享组合动作 |
-| parasitic_models.py、parasitic_rc.py、parasitic_surrogate.py、parasitic_nn/、parasitic_workspace.py、parasitic_view.py | 已审核且有范围限制的 RC 系数与可选纯 NumPy 神经网络代理（含 3D 过孔聚类与节点电阻）、本地几何估算、黑盒安全的范围过滤与异步显示 |
+| parasitic_models.py、parasitic_rc.py、parasitic_surrogate.py、parasitic_nn/、parasitic_workspace.py、parasitic_view.py | 已审核且有范围限制的 RC 系数与可选纯 NumPy 神经网络代理（含 3D 过孔聚类与节点电阻）、按需本地几何估算、共享 Agent HTTP (`inspect_region(kind="parasitics")`) 与异步黑盒安全显示 |
 | wire_capture.py、wire_panel.py | 未确认的正交走线草稿、换层和过孔预览；确认时复用现有 Editor 单次事务 |
 | adapter.py、sync_checks.py、transactions.py | 原生源/依赖前提、事务日志和对账 |
 | transport.py、native_lane.py、skill/ | Bridge 边界、原生通道串行调度、CoLayout 自有 SKILL 内核 |

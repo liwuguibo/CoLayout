@@ -55,7 +55,6 @@ class AgentHub(QObject):
             autoroute_enabled=lambda:self.process_configuration.agent_autoroute_enabled(
                 window.editor.profile if window.editor else None),
         )
-        self.route_unsubscribe=self.runtime.tasks.subscribe_routes(window.parasitics.agent_route_event)
         self.dispatcher = QtDispatcher(self.runtime.invoke, self, audit=self.runtime.audit.emit,invoke_async=self.runtime.invoke_async)
         self.server = AgentHTTPServer(self.dispatcher, self.connection_file)
         self.timer = QTimer(self)
@@ -108,7 +107,6 @@ class AgentHub(QObject):
             return
         self.closed = True
         self.timer.stop()
-        if self.route_unsubscribe:self.route_unsubscribe()
         if self.panel is not None:
             self.panel.dispose()
         self.server.close()

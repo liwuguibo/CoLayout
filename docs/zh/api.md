@@ -29,7 +29,7 @@ APP 在 127.0.0.1 提供带身份验证的 HTTP 服务，将当前 URL/token 发
 | reference_cases | 只读查询人提供的参考案例 |
 | process_configuration | 初始化角色的需求查询、提案提交/查询和配置导出；无 API 批准动作 |
 | claim_region | 独占一个操作层 |
-| inspect_region | 查询本区域的版图、规则、连通和原理图参考 |
+| inspect_region | 查询本区域的版图、规则、连通、原理图参考以及按需 RC 寄生影响评估 |
 | edit_region | 校验后采用编辑批次，包含受支持的边界、PIN、保护环和局部布线豁免 |
 | route_region | 默认关闭，仅人在工艺库启用后开放的算法自动布线 |
 | check_region | 本地受支持 DRC 与连通检查任务 |
@@ -46,6 +46,19 @@ edit_region 的 tighten_region/tighten_child_region 与人端“收紧操作区�
 edit_region 的 create_pour 在矩形 bounds_um 内为一种可写金属 drawing LPP 铺铜，net_intent 和 clearance 必填。targets 只能显式列出本层普通图形/过孔 UID；其他同层金属、禁布区与黑盒策略均按间距避让，已知网络冲突会拒绝。指定目标后删除未连接铜岛，省略目标则保留所有独立铜岛。间距包含制造网格取整保护。
 
 allow_45 可选，默认 false。默认模式下，非正交障碍使用保守轴对齐包围，输出仅含水平/垂直边；正交切片重新合并为无孔简单多边形，支持 L/U 形凹角。allow_45=true 时允许 45°/90° 边，支持的 45° 斜障碍按实际 45° 轮廓避让，非支持角度仍使用保守轴对齐包围；输出切片同样合并为无孔简单多边形。单次最多 512 个多边形。该动作单项异步提交并原子采用，所有 UID 共用一次撤销。几何间距不代替 DRC/LVS，仍须运行本地和服务器检查。
+
+### 寄生参数按需检查 (`inspect_region(kind="parasitics")`)
+
+`inspect_region` 支持 `kind="parasitics"`，与人端 UI 共享同一个按需本地 RC 评估领域服务（`signoff: false`）。参数说明：
+- `uids`: 可选，非空对象 UID 字符串列表（`list[str]`）。
+- `net`: 可选，字符串网络名。
+- `target`: 可选，目标描述（`CaptureTarget`）。
+  *(注：`uids`、`net`、`target` 互斥，每次调用最多指定其一)*。
+- `bounds_um` / `markup_id`: 可选的裁剪范围或标记 ID（支持 `padding_um`, `clip_to_region`）。
+- `analysis_radius_um`: 近邻分析半径（`>0, <=100` µm，默认 `10` µm）。
+
+`inspect_region(kind="rules")` 同时报告 `parasitics` 元数据（包含 `configured`、`mode`、`rc_model_digest`）。
+CLI 访问方式：`./python.sh api.py --client <name> inspect parasitics`（支持 `--net CLK_P`、`--uids U1 U2` 或重复 `--uid`、`--radius-um 12`、`--bounds ...`、`--markup-id ...`）。
 
 ## 身份、版本和任务
 

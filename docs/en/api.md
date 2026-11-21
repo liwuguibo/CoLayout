@@ -29,7 +29,7 @@ The special tools discovery call returns currently available schemas and is not 
 | reference_cases | Read-only discovery and inspection of human-provided references |
 | process_configuration | Setup-role requirements, proposal submission/query and configuration export; no API approval |
 | claim_region | Exclusive ownership of one construction level |
-| inspect_region | Scoped layout, rules, connectivity and schematic-reference projections |
+| inspect_region | Scoped layout, rules, connectivity, schematic-reference projections, and on-demand RC parasitic evaluation |
 | edit_region | Validated edit batches, including supported frames, PINs, guards and routing windows |
 | route_region | Algorithm autorouting, disabled by default until enabled in the human process UI |
 | check_region | Local supported DRC/connectivity jobs |
@@ -46,6 +46,19 @@ edit_region tighten_region/tighten_child_region share the human tightening imple
 The edit_region create_pour helper fills rectangular bounds_um on one writable metal drawing LPP; net_intent and clearance are required. Optional targets explicitly name direct shapes/vias to connect. Every other same-layer object and all routing-policy obstacles are avoided, and a known conflicting target net is rejected. With targets, disconnected islands are removed; without targets, all islands remain. Clearance includes a manufacturing-grid rounding guard.
 
 The optional allow_45 parameter defaults to false. In the default mode, non-orthogonal obstacles receive conservative axis-aligned covers and output has horizontal/vertical edges only; orthogonal slices are merged into simple polygons without holes, including concave L/U shapes. With allow_45=true, output may have 45°/90° edges, and supported 45° diagonal obstacles are avoided using their actual 45° contours. Obstacles at unsupported angles still receive conservative axis-aligned covers, and output slices are likewise merged into simple polygons without holes. Output is capped at 512 polygons per call. Submit it alone as an asynchronous atomic edit; all created UIDs share one undo step. Geometric clearance is not DRC/LVS sign-off, so run both local and server checks afterward.
+
+### On-demand RC parasitic inspection (`inspect_region(kind="parasitics")`)
+
+`inspect_region` supports `kind="parasitics"` sharing the exact on-demand local RC evaluation domain service with the Human UI (`signoff: false`). Parameters:
+- `uids`: Optional non-empty list of object UIDs (`list[str]`).
+- `net`: Optional net name string.
+- `target`: Optional target descriptor (`CaptureTarget`).
+  *(Note: `uids`, `net`, and `target` are mutually exclusive; specify at most one)*.
+- `bounds_um` / `markup_id`: Optional clip bounds or markup ID (supporting `padding_um`, `clip_to_region`).
+- `analysis_radius_um`: Neighbour analysis radius (`>0, <=100` µm, default `10` µm).
+
+`inspect_region(kind="rules")` also reports `parasitics` metadata (`configured`, `mode`, `rc_model_digest`).
+CLI usage: `./python.sh api.py --client <name> inspect parasitics` (e.g., `--net CLK_P`, `--uids U1 U2` or repeatable `--uid`, `--radius-um 12`, `--bounds ...`, `--markup-id ...`).
 
 ## Identity, revision and jobs
 

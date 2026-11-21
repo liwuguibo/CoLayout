@@ -227,6 +227,13 @@ def rules(p, drc, *, autoroute_enabled=False):
             'note':'标记实际接触，提示检查走线路径；不是短路或 LVS 结论。'}],
         'automatic_path_layers': automatic_layers(p,drc) if drc else {},
         'via_definitions': p.vias,
+        'parasitics': {
+            'configured': bool(p.parasitics),
+            'mode': (p.parasitics.surrogate.kind if p.parasitics.surrogate else 'analytic')
+            if p.parasitics
+            else None,
+            'rc_model_digest': p.rc_model_digest,
+        },
         'guard_templates': [{key:value for key,value in row.items() if key!='template'} for row in templates(p)],
         'conduction': ConductionRules(p).describe(),
         'edit_actions': {
@@ -258,6 +265,34 @@ def net_request(w,p,region_id,args):
         args=args.model_copy(update={'bounds_um':tuple(location['bounds_um'])})
     result=net(w,p,region_id,args.net,target=args.target,include_members=args.include_members,bounds_um=args.bounds_um,layers=args.layers)
     if location:result['location']=location
+    return result
+
+
+def parasitics_request(w, p, region_id, args):
+    from ..model import LiteError
+    from ..parasitic_workspace import evaluate_parasitics
+
+    if args.kind != 'parasitics':
+        raise LiteError('INVALID_ARGUMENTS', 'parasitics_request 仅用于 kind=parasitics。')
+    location = None
+    if args.markup_id:
+        from .markup_query import resolve
+
+        location = resolve(w, p, region_id, args.markup_id, args.padding_um, args.clip_to_region)
+        args = args.model_copy(update={'bounds_um': tuple(location['bounds_um'])})
+    result = evaluate_parasitics(
+        w,
+        p,
+        region_id,
+        uids=args.uids,
+        net=args.net,
+        target=args.target,
+        bounds_um=args.bounds_um,
+        analysis_radius_um=args.analysis_radius_um or 10.0,
+        peek=False,
+    )
+    if location:
+        result['location'] = location
     return result
 
 

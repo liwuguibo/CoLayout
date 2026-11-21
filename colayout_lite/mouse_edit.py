@@ -115,8 +115,6 @@ class MouseEdit:
             if not movable_selection(w,self.armed['ids']):
                 self.armed['inspect_only']=True
                 if not self.armed.get('frame_foreground'):w.inspection.pick(scene.x(),-scene.y())
-            elif hasattr(w,'parasitics'):
-                w.parasitics.begin_transform(self.armed['ids'],w.editor.w)
         return True
 
     def valid_context(self):
@@ -172,7 +170,6 @@ class MouseEdit:
                 if self.visual is None:self.visual=DragVisual(w,r['ids'])
                 self.visual.move((dx,dy))
             r['delta']=(dx,dy)
-            if 'ids' in r and hasattr(w,'parasitics'):w.parasitics.preview_transform(r['ids'],(dx,dy))
         except Exception as exc:self.error=str(exc);w.status.setText(self.error)
         w.canvas.setCursor(Qt.CursorShape.ForbiddenCursor if self.error else Qt.CursorShape.ClosedHandCursor)
         w.canvas.viewport().update();return True
@@ -207,7 +204,6 @@ class MouseEdit:
             elif 'resize' in r:BoundsEdit(w.editor).resize(r['resize'],r['result_bounds'],expected_revision=r['revision'])
             else:
                 api.transform(r['ids'],delta=(dx,dy),expected_revision=r['revision'])
-                if hasattr(w,'parasitics'):w.parasitics.finish_transform()
         except Exception as exc:w.status.setText(str(exc))
         finally:self.cancel();self.refresh_selection()
         return True
@@ -215,7 +211,6 @@ class MouseEdit:
     def cancel(self):
         if self.visual:self.visual.close();self.visual=None
         self.armed=None;self.dragging=False;self.pin_selected=None;self.preview_pins={};self.preview_bounds=None;self.error=None
-        if hasattr(self.window,'parasitics'):self.window.parasitics.cancel_transform()
         self.window.canvas.unsetCursor();self.window.canvas.viewport().update()
 
     def can_resize(self):

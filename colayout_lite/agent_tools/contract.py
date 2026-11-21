@@ -85,7 +85,7 @@ class Located(Scoped):
 
 
 class Inspect(Located):
-    kind: Literal['layout', 'net', 'rules', 'reference', 'terminals'] = 'layout'
+    kind: Literal['layout', 'net', 'rules', 'reference', 'terminals', 'parasitics'] = 'layout'
     net: str | None = None
     detail: Literal['full', 'summary'] = 'full'
     uids: list[str] | None = Field(default=None, min_length=1, max_length=256)
@@ -96,6 +96,8 @@ class Inspect(Located):
     include_members: bool = False
     parameter_names: list[str] | None = Field(default=None, max_length=128,
         description='reference only; [] omits CDF parameters while preserving terminal/binding data.')
+    analysis_radius_um: float | None = Field(default=None, gt=0, le=100.0, allow_inf_nan=False,
+        description='parasitics only; halo coupling search radius in um (default 10).')
     instance_name: str | None = Field(default=None,min_length=1,max_length=200)
     terminal: str | None = Field(default=None,min_length=1,max_length=200)
     name_source: Literal['layout','schematic'] = 'layout'
@@ -103,11 +105,17 @@ class Inspect(Located):
     @model_validator(mode='after')
     def terminal_options(self):
         if self.parameter_names is not None and self.kind!='reference':raise ValueError('parameter_names requires kind=reference')
+        if self.analysis_radius_um is not None and self.kind!='parasitics':raise ValueError('analysis_radius_um requires kind=parasitics')
         if self.kind=='terminals':
             if not self.instance_name:raise ValueError('terminals requires instance_name')
             if self.markup_id or self.net is not None or self.target or self.uids or self.pin_ids or self.bounds_um or self.layers or self.parameter_names or self.include_members or self.detail!='full':raise ValueError('terminals only supports instance_name/terminal/name_source')
         elif self.instance_name is not None or self.terminal is not None or self.name_source!='layout':raise ValueError('instance_name/terminal/name_source require kind=terminals')
-        if self.markup_id and self.kind not in ('layout','net'):raise ValueError('markup_id requires layout/net')
+        if self.kind=='parasitics':
+            if self.pin_ids is not None or self.layers is not None or self.include_members or self.detail!='full':
+                raise ValueError('parasitics only supports uids/net/target/bounds_um/markup_id/analysis_radius_um')
+            if sum(x is not None for x in (self.net,self.uids,self.target))>1:
+                raise ValueError('parasitics accepts at most one of net, uids, or target')
+        if self.markup_id and self.kind not in ('layout','net','parasitics'):raise ValueError('markup_id requires layout/net/parasitics')
         return self
 
 
@@ -195,7 +203,7 @@ TOOLS = {
     'claim_region': (Claim, '凭人或父 Agent 分配的操作区 ID 独占当前层；父子可分别接入，只列出本层直属子区，不进入更深层。'),
     'inspect_region': (
         Inspect,
-        '读取本层对象、Layout PIN/网络、工艺规则或仅供布局参考的原理图缓存。坐标为工作区绝对 µm。',
+        '读取本层对象、Layout PIN/网络、工艺规则、仅供布局参考的原理图缓存，或按需查询指定走线/网络的 RC 寄生估算。坐标为工作区绝对 µm。',
     ),
     'edit_region': (
         Edit,

@@ -55,6 +55,16 @@ def mouse_move(host, x, y):
 
 
 def test_unconfirmed_turn_layer_change_via_preview_and_single_commit(app, profile, monkeypatch):
+    import colayout_lite.parasitic_workspace as parasitic_workspace
+
+    calls = []
+    real_eval = parasitic_workspace.evaluate_parasitics_outcome
+
+    def spy_eval(*args, **kwargs):
+        calls.append(kwargs.get('uids'))
+        return real_eval(*args, **kwargs)
+
+    monkeypatch.setattr('colayout_lite.parasitic_view.evaluate_parasitics_outcome', spy_eval)
     host = prepare_wire_host(profile, monkeypatch)
     panel = host.wire_panel
     view = host.parasitics
@@ -69,13 +79,25 @@ def test_unconfirmed_turn_layer_change_via_preview_and_single_commit(app, profil
         assert panel.draft is not None
         assert len(panel.draft.shapes(profile)) == 3
         assert host.editor.w.revision == 0 and not host.editor.w.operations
-        assert wait_until(app, lambda: view.estimate is not None)
-        preview_est = view.estimate
+        # Interactive mouse motion and wire commit trigger zero unsolicited RC work
+        assert calls == []
+        assert view.estimate is None
+
         panel.capture.end()
         assert host.editor.w.revision == 1
         assert len(host.editor.w.operations) == 3
         assert len(host.editor._undo) == 1
-        assert wait_until(app, lambda: view.estimate is not None and view.estimate is not preview_est)
+        assert calls == []
+        assert view.estimate is None
+        assert panel.inspect_rc_button.isEnabled()
+
+        # Clicking "查看本次走线 RC" after routing calculates RC + delta on demand
+        panel.inspect_rc_button.click()
+        assert wait_until(app, lambda: view.estimate is not None)
+        assert len(calls) == 1
+        assert view.estimate.ground_capacitance_fF > 0
+        assert view.estimate.coupling_capacitance_fF > 0
+        assert view.panel.delta.text() not in ('', '—')
         assert '排队中' not in view.panel.status.text()
     finally:
         host.close()
@@ -95,18 +117,21 @@ def test_escape_cancels_uncommitted_wire(app, profile, monkeypatch):
         host.close()
 
 
-def test_move_away_from_old_neighbor_produces_negative_delta(app, profile, monkeypatch):
+def test_move_on_demand_after_commit_produces_negative_delta(app, profile, monkeypatch):
+    from colayout_lite.human_edit import HumanEdit
+
     host = host_window(profile, monkeypatch)
     view = host.parasitics
     try:
-        view.begin_transform(['wire'], host.editor.w)
-        view.preview_transform(['wire'], (0, -1000))
+        before = host.editor.w
+        HumanEdit(host.editor).transform(['wire'], delta=(0, -1000))
+        assert view.estimate is None
+        assert view.evaluate_now(['wire'], baseline_workspace=before, baseline_target_uids=['wire'])
         assert wait_until(app, lambda: view.estimate is not None and 'fF' in view.panel.delta.text())
         text = view.panel.delta.text()
         assert '覆盖不一致' not in text
         parts = text.split('/')
         assert float(parts[-1].replace('fF', '').strip()) < 0
-        view.cancel_transform()
     finally:
         host.close()
 
@@ -121,7 +146,7 @@ def test_missing_via_preview_never_blocks_gesture_or_causes_partial_commit(app, 
         panel.layer.setCurrentIndex(panel.layer.findData('wire_b'))
         panel.via.clear()
         mouse_move(host, 10000, -10000)
-        assert 'RC 预览不可用' in panel.message.text()
+        assert 'Missing via' in panel.message.text() or '走线草案提示' in panel.message.text()
         assert host.editor.w.revision == 0
         panel.capture.end()
         assert host.editor.w.revision == 0 and not host.editor.w.operations

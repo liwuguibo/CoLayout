@@ -525,7 +525,7 @@
   },
   {
     "name": "inspect_region",
-    "description": "读取本层对象、Layout PIN/网络、工艺规则或仅供布局参考的原理图缓存。坐标为工作区绝对 µm。",
+    "description": "读取本层对象、Layout PIN/网络、工艺规则、仅供布局参考的原理图缓存，或按需查询指定走线/网络的 RC 寄生估算。坐标为工作区绝对 µm。",
     "input_schema": {
       "$defs": {
         "CaptureTarget": {
@@ -642,7 +642,8 @@
             "net",
             "rules",
             "reference",
-            "terminals"
+            "terminals",
+            "parasitics"
           ],
           "title": "Kind",
           "type": "string"
@@ -779,6 +780,21 @@
           "default": null,
           "description": "reference only; [] omits CDF parameters while preserving terminal/binding data.",
           "title": "Parameter Names"
+        },
+        "analysis_radius_um": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 100.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "parasitics only; halo coupling search radius in um (default 10).",
+          "title": "Analysis Radius Um"
         },
         "instance_name": {
           "anyOf": [

@@ -326,6 +326,8 @@ def test_parasitic_view_runs_neural_surrogate(app, tmp_path, profile, monkeypatc
     prof = profile.model_copy(update={'parasitics': surr_rc})
     host = host_window(prof, monkeypatch)
     try:
+        assert host.parasitics.estimate is None
+        assert host.parasitics.evaluate_now(['wire'])
         assert wait_until(app, lambda: host.parasitics.estimate is not None)
         assert host.parasitics.estimate.mode == 'geograph_rc_v3'
         assert '神经网络估算' in host.parasitics.panel.status.text()

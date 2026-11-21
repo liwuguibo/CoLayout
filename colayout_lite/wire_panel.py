@@ -40,6 +40,9 @@ class WirePanel(QWidget):
         self.draft = None
         self._profile = None
         self._last_default_width: float | None = None
+        self._last_route_uids: tuple[str, ...] = ()
+        self._last_route_before = None
+        self._last_route_after = None
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.layer = QComboBox()
@@ -78,6 +81,11 @@ class WirePanel(QWidget):
         row.addWidget(self.finish_button)
         row.addWidget(self.cancel_button)
         layout.addLayout(row)
+        self.inspect_rc_button = QPushButton('查看本次走线 RC')
+        self.inspect_rc_button.setObjectName('wireInspectRc')
+        self.inspect_rc_button.setToolTip('仅在走线完成或选中导线后，按需计算本次走线的 R / Cg / Cc。')
+        self.inspect_rc_button.clicked.connect(self.inspect_route_rc)
+        layout.addWidget(self.inspect_rc_button)
         self.message = QLabel(
             '单击加点（自动 L 形正交预览，Space 翻转折弯），[ / ] 切换下层/上层金属并自动匹配过孔；\n'
             '右键撤销上一步，Enter/双击确认，Esc 取消。提交不新增全区 DRC/连通门槛。'
@@ -120,6 +128,12 @@ class WirePanel(QWidget):
         self.via.setEnabled(enabled)
         self.finish_button.setEnabled(self.capture.active)
         self.cancel_button.setEnabled(self.capture.active)
+        has_last_route = bool(self._last_route_uids and editor.w is self._last_route_after)
+        human = getattr(self.window, 'human', None)
+        has_selection = bool(human and human.ids())
+        self.inspect_rc_button.setEnabled(
+            bool(editor.profile.parasitics and not self.capture.active and (has_last_route or has_selection))
+        )
 
     def layer_changed(self):
         if not self.window.editor:
@@ -190,7 +204,6 @@ class WirePanel(QWidget):
         cancel_drawing(window, self)
         window.selection_ui.set_ids([])
         self.segment_changed()
-        window.parasitics.begin_draft(window.editor.w)
         self.capture.start(
             layer=self.layer.currentData(),
             width_um=self.width.value(),
@@ -212,23 +225,17 @@ class WirePanel(QWidget):
 
     def preview(self, draft):
         self.draft = draft
-        if draft is None:
-            self.window.parasitics.cancel_draft_preview()
-        else:
+        if draft is not None and self.window.editor:
             try:
-                self.window.parasitics.preview_draft(
-                    draft.geometry(self.window.editor.profile)
-                )
+                draft.shapes(self.window.editor.profile)
             except Exception as exc:
-                self.message.setText('RC 预览不可用：' + str(exc) + '；仍可继续画线。')
-                self.window.parasitics.cancel_draft_preview()
+                self.message.setText('走线草案提示：' + str(exc) + '；仍可继续画线。')
         self.window.canvas.viewport().update()
 
     def cancel_draw(self, *_):
         was_active = self.capture.active
         self.capture.cancel()
         self.draft = None
-        self.window.parasitics.cancel_draft()
         self.refresh()
         if not was_active:
             self.window.view_state_changed.emit()
@@ -244,14 +251,18 @@ class WirePanel(QWidget):
             self.capture.cursor = None
             window.canvas.unsetCursor()
         self.draft = None
+        before_ws = editor.w
         try:
             shapes = draft.shapes(editor.profile)
             created = []
             with editor.transaction() as staged:
                 for shape in shapes:
                     created.append(staged.create(shape))
+            self._last_route_uids = tuple(created)
+            self._last_route_before = before_ws if created else None
+            self._last_route_after = editor.w if created else None
             window.selection_ui.set_ids(created)
-            msg = f'已创建 {len(created)} 个图形；Ctrl+Z 可撤销。'
+            msg = f'已创建 {len(created)} 个图形；可点击“查看本次走线 RC”估算寄生，Ctrl+Z 可撤销。'
             self.message.setText(msg)
             if hasattr(window, 'status'):
                 window.status.setText(msg)
@@ -259,12 +270,35 @@ class WirePanel(QWidget):
             self.message.setText(str(exc))
             if hasattr(window, 'status'):
                 window.status.setText(str(exc))
-        window.parasitics.finish_draft()
         if was_active:
             self.capture.active_changed.emit(False)
         else:
             self.refresh()
             window.view_state_changed.emit()
+
+    def inspect_route_rc(self):
+        editor = self.window.editor
+        if not editor or not editor.profile.parasitics:
+            self.message.setText('请先在工艺库配置并审核 RC 参数。')
+            return
+        target_uids = None
+        baseline = None
+        baseline_uids = None
+        if self._last_route_uids and editor.w is self._last_route_after:
+            target_uids = self._last_route_uids
+            baseline = self._last_route_before
+            baseline_uids = target_uids
+        else:
+            human = getattr(self.window, 'human', None)
+            ids = tuple(sorted(human.ids())) if human else ()
+            if ids:
+                target_uids = ids
+        self.window.parasitics.show()
+        self.window.parasitics.evaluate_now(
+            target_uids,
+            baseline_workspace=baseline,
+            baseline_target_uids=baseline_uids,
+        )
 
     def paint(self, painter):
         if not self.capture.active:

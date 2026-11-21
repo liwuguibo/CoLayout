@@ -43,7 +43,7 @@ A separate setup agent uses Bridge to collect a sample and submit a ProcessPacka
 | geometry*, materials*, conduction*, physical_connectivity.py | Geometric evidence and supported conductive graph; no UI or network orchestration |
 | drc/ | Supported local rules, report parsing, asynchronous server tasks and result evidence |
 | autoroute/, layout_helpers.py | Frozen algorithm input, proposed geometry and shared composed operations |
-| parasitic_models.py, parasitic_rc.py, parasitic_surrogate.py, parasitic_nn/, parasitic_workspace.py, parasitic_view.py | Reviewed bounded RC coefficients and optional pure-NumPy neural surrogate (with 3D via clustering and nodal resistance), local geometry estimates, blackbox-safe scope filtering and asynchronous presentation |
+| parasitic_models.py, parasitic_rc.py, parasitic_surrogate.py, parasitic_nn/, parasitic_workspace.py, parasitic_view.py | Reviewed bounded RC coefficients and optional pure-NumPy neural surrogate (with 3D via clustering and nodal resistance), on-demand local geometry estimates, shared Agent HTTP (`inspect_region(kind="parasitics")`), and blackbox-safe presentation |
 | wire_capture.py, wire_panel.py | Uncommitted orthogonal route drafts, layer transitions and via previews; one existing editor transaction on confirmation |
 | adapter.py, sync_checks.py, transactions.py | Source/dependency preconditions, native transaction journal and reconciliation |
 | transport.py, native_lane.py, skill/ | Explicit Bridge boundary, serialized native lanes and CoLayout-owned SKILL kernel |

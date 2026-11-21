@@ -4,7 +4,7 @@ All coordinates for edit calls are workspace-absolute micrometres unless the too
 
 1. `tools`: inspect the live tools/actions. A schema file is a snapshot, not authority over a newer server.
 2. `claim_region`: use the exact region ID from the user. Keep the returned session token private.
-3. `inspect_region`: layout/rules/reference/net projections are scoped to the claimed construction level.
+3. `inspect_region`: layout / rules / reference / net projections / on-demand RC parasitics (`kind="parasitics"`, supporting `uids`, `net`, `target`, and `analysis_radius_um`, plus `inspect rules` reporting `parasitics` availability; `signoff: false`) are scoped to the claimed construction level.
 4. `edit_region`: supply expected_revision and a reviewed operation batch. Atomic validation must succeed before edits are adopted.
 5. `check_region`: asynchronous local connectivity, supported geometric rules and advisory checks. Poll the same job ID.
 6. `server_drc_region`: asynchronous server DRC using an isolated native copy. It can start independently of local DRC; both must pass for completion.

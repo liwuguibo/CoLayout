@@ -123,7 +123,7 @@ class AgentSession:
                     result=invoke(self.process_configuration,value,client_id,request_id)
                 else:
                     lease = self.lease(value.session_token, client_id)
-                    if _defer_read and (tool=='capture_region' or tool=='inspect_region' and value.kind=='net'):
+                    if _defer_read and (tool=='capture_region' or tool=='inspect_region' and value.kind in ('net','parasitics')):
                         return self.defer_read(tool,value,lease,key,request_id,client_id,began)
                     result = getattr(self, tool)(lease, value)
             response = {
@@ -200,6 +200,7 @@ class AgentSession:
 
     def inspect_region(self, lease, args):
         if args.kind=='net':return inspection.net_request(lease.editor.w,lease.editor.profile,lease.region_id,args)
+        if args.kind=='parasitics':return inspection.parasitics_request(lease.editor.w,lease.editor.profile,lease.region_id,args)
         if args.kind=='terminals':
             from .terminal_query import query
             return query(lease.editor.w,lease.editor.profile,lease.region_id,args.instance_name,args.terminal,args.name_source)

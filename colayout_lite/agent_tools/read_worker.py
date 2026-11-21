@@ -12,7 +12,7 @@ def main():
     from ..transport import NativeTransport
     from .contract import Capture,Inspect
     from .capture import capture
-    from .inspection import net_request
+    from .inspection import net_request,parasitics_request
     def forbidden(*args,**kwargs):raise RuntimeError('Read worker cannot contact native EDA')
     NativeTransport.__init__=forbidden
     app=QApplication([]);app.setStyle('Fusion')
@@ -28,7 +28,8 @@ def main():
             if request['tool']=='capture_region':
                 result=capture(w,p,request['region_id'],Capture.model_validate(args),request['images'])
             elif request['tool']=='inspect_region':
-                result=net_request(w,p,request['region_id'],Inspect.model_validate(args))
+                parsed=Inspect.model_validate(args)
+                result=parasitics_request(w,p,request['region_id'],parsed) if parsed.kind=='parasitics' else net_request(w,p,request['region_id'],parsed)
             else:raise ValueError('Unsupported read worker tool')
             response={'ok':True,'result':result}
         except Exception as exc:

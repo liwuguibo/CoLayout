@@ -150,13 +150,14 @@ def main():
     workspace.add_argument('--name');workspace.add_argument('--path')
     workspace.add_argument('--offset',type=int,default=0);workspace.add_argument('--limit',type=int,default=50)
     claim = sub.add_parser('claim'); claim.add_argument('region_id'); claim.add_argument('--name', required=True)
-    inspect = sub.add_parser('inspect'); inspect.add_argument('kind', choices=['layout', 'net', 'rules', 'reference', 'terminals'])
+    inspect = sub.add_parser('inspect'); inspect.add_argument('kind', choices=['layout', 'net', 'rules', 'reference', 'terminals', 'parasitics'])
     select=inspect.add_mutually_exclusive_group()
     for flag in ('--net','--component','--uid','--pin-id'):
-        select.add_argument(flag,**({'action':'append','help':'layout/reference: 可重复指定对象；net: 只允许一个对象。'} if flag=='--uid' else {}))
+        select.add_argument(flag,**({'action':'append','help':'layout/reference/parasitics: 可重复指定对象；net: 只允许一个对象。'} if flag=='--uid' else {}))
     inspect.add_argument('--bounds',type=float,nargs=4);inspect.add_argument('--layers',nargs='+')
     inspect.add_argument('--members',action='store_true');inspect.add_argument('--point',type=float,nargs=2)
     inspect.add_argument('--layer');inspect.add_argument('--query-ref')
+    inspect.add_argument('--radius-um',type=float,help='parasitics 近邻耦合搜索半径 (µm，默认 10)')
     inspect.add_argument('--summary',action='store_true');inspect.add_argument('--uids',nargs='+');inspect.add_argument('--pin-ids',nargs='+')
     inspect.add_argument('--parameters',nargs='*',help='reference 原生参数名；显式空列表省略全部参数，保留端子/绑定')
     inspect.add_argument('--instance-name');inspect.add_argument('--terminal');inspect.add_argument('--name-source',choices=['layout','schematic'])
@@ -212,16 +213,16 @@ def main():
             options={'kind':args.kind}
             object_target=None
             if args.uid:
-                if args.kind in ('layout','reference'):
+                if args.kind in ('layout','reference','parasitics'):
                     args.uids=list(dict.fromkeys([*(args.uids or []),*args.uid]))
                 elif args.kind=='net' and len(args.uid)==1:
                     object_target=args.uid[0]
                 else:
-                    raise ValueError('--uid: layout/reference 可用 --uids UID1 UID2；net 查询只允许一个 --uid。')
+                    raise ValueError('--uid: layout/reference/parasitics 可用 --uids UID1 UID2；net 查询只允许一个 --uid。')
             for key in ('instance_name','terminal','name_source','markup_id','padding_um','clip_to_region'):
                 value=getattr(args,key)
                 if value:options[key]=value
-            for key,value in (('net',args.net),('bounds_um',args.bounds),('layers',args.layers),('uids',args.uids),('pin_ids',args.pin_ids)):
+            for key,value in (('net',args.net),('bounds_um',args.bounds),('layers',args.layers),('uids',args.uids),('pin_ids',args.pin_ids),('analysis_radius_um',args.radius_um)):
                 if value is not None:options[key]=value
             if args.summary:options['detail']='summary'
             if args.parameters is not None:options['parameter_names']=args.parameters

@@ -127,6 +127,29 @@ class AgentClient:
     def tools(self, tool=None, action=None):
         return self.call('tools',{k:v for k,v in {'tool':tool,'action':action}.items() if v is not None})['tools']
 
+    def inspect_parasitics(self, *, uids=None, net=None, target=None, bounds_um=None,
+                           analysis_radius_um=None, markup_id=None, padding_um=0,
+                           clip_to_region=False):
+        """On-demand RC parasitic estimate for selected objects, net or area in the claimed region."""
+        options = {'kind': 'parasitics'}
+        if uids is not None:
+            options['uids'] = list(uids)
+        if net is not None:
+            options['net'] = net
+        if target is not None:
+            options['target'] = target
+        if bounds_um is not None:
+            options['bounds_um'] = list(bounds_um)
+        if analysis_radius_um is not None:
+            options['analysis_radius_um'] = analysis_radius_um
+        if markup_id is not None:
+            options['markup_id'] = markup_id
+        if padding_um:
+            options['padding_um'] = padding_um
+        if clip_to_region:
+            options['clip_to_region'] = True
+        return self.call('inspect_region', options, wait_seconds=0)
+
     def workspace(self, action='status', **arguments):
         """Save/load a complete local document; load requires all leases released."""
         if action in ('save','load'):

@@ -357,9 +357,6 @@ class RoutingPanel(QWidget):
                 self._preview_cache[key]=cached
                 while len(self._preview_cache)>2:self._preview_cache.popitem(last=False)
                 self.window.inspection.set_preview(preview)
-                if hasattr(self.window,'parasitics'):
-                    target=tuple(op.uid for op in preview.workspace.operations[len(preview.source.operations):])
-                    self.window.parasitics.preview_candidate(preview.workspace,target,preview.source,source='human')
                 self.preview_key=(id(e),id(e.w),e.scope_id);self.window.canvas.viewport().update()
             except (LiteError,ValueError,KeyError,TypeError) as exc:
                 self._preview_requested=False;self.clear_preview();self.message.setText('此候选几何无法预览：'+str(exc))
@@ -367,7 +364,6 @@ class RoutingPanel(QWidget):
 
     def clear_preview(self):
         if self.owns_preview():self.window.inspection.set_preview(None)
-        if hasattr(self.window,'parasitics'):self.window.parasitics.cancel_candidate('human')
         self.paths=[];self.drawing=None;self.preview_key=None;self.preview=None
         self.window.canvas.viewport().update()
 
