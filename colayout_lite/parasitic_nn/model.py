@@ -120,6 +120,7 @@ class GeoGraphRCEngine:
         resolve_vias: bool = True,
         compute_r_nets: Optional[Sequence[str]] = None,
         temp_c: float = 25.0,
+        partition_owner_by_id: Optional[Mapping[int, Optional[int]]] = None,
     ) -> Dict[str, Any]:
         """Predict per-net/element ``C_gnd``, ``C_cpl``, and 3D ``R`` for a window."""
         t0 = time.perf_counter()
@@ -184,6 +185,7 @@ class GeoGraphRCEngine:
         graph = self.extractor.extract_graph(
             active_elements=act_use,
             all_elements_for_ground_shield=bg_use,
+            partition_owner_by_id=partition_owner_by_id,
         )
         v_raw = graph['node_features']
         e_idx = graph['edge_index']

@@ -18,6 +18,14 @@ from .geometry_graph import (
     synthetic_stackup,
 )
 from .model import GeoGraphRCEngine, load_npz_weights
+from .parasitic_partition import (
+    NeighborCouplingSummary,
+    PartitionContribution,
+    PartitionedCapResult,
+    PartitionSpec,
+    build_core_halo_partitions,
+    evaluate_partitioned_capacitance,
+)
 from .via_connectivity import (
     ConnectivityResult,
     SYNTHETIC_GDS_VIA_MAP,
@@ -35,6 +43,10 @@ __all__ = [
     'EPS0_FF_PER_UM',
     'GeoGraphRCEngine',
     'LayoutGraphExtractor',
+    'NeighborCouplingSummary',
+    'PartitionContribution',
+    'PartitionSpec',
+    'PartitionedCapResult',
     'RectangleElement',
     'StackupConfig',
     'SYNTHETIC_DIELECTRIC_ZONES',
@@ -47,8 +59,10 @@ __all__ = [
     'SYNTHETIC_VIA_STACK_SPEC',
     'ViaBridgeInfo',
     'ViaSpec',
+    'build_core_halo_partitions',
     'calc_effective_eps_r',
     'decompose_rectilinear_polygon',
+    'evaluate_partitioned_capacitance',
     'load_npz_weights',
     'resolve_layout_connectivity',
     'snap_grid',

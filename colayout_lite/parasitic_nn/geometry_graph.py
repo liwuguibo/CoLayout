@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 import math
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -378,6 +378,27 @@ def _los_block_sym(
     )
 
 
+def _is_artificial_seam_edge(
+    ei: RectangleElement,
+    ej: RectangleElement,
+    dist_xy: float,
+    partition_owner_by_id: Mapping[int, Optional[int]],
+) -> bool:
+    """Return True when two abutting same-net planar pieces meet across an artificial cut."""
+    if dist_xy >= 1e-4 or ei.is_via or ej.is_via:
+        return False
+    if ei.layer_idx != ej.layer_idx or ei.net_name != ej.net_name:
+        return False
+    ou = partition_owner_by_id.get(ei.id)
+    ov = partition_owner_by_id.get(ej.id)
+    if ou is not None and ov is not None and ou != ov:
+        return True
+    return (
+        (abs(ei.y0 - ej.y0) <= 1e-4 and abs(ei.y1 - ej.y1) <= 1e-4)
+        or (abs(ei.x0 - ej.x0) <= 1e-4 and abs(ei.x1 - ej.x1) <= 1e-4)
+    )
+
+
 class LayoutGraphExtractor:
     """Extract E(2)-invariant Geo-Graph node and edge features within vertical/halo bounds."""
 
@@ -435,6 +456,8 @@ class LayoutGraphExtractor:
         self,
         active_elements: Sequence[RectangleElement],
         all_elements_for_ground_shield: Optional[Sequence[RectangleElement]] = None,
+        *,
+        partition_owner_by_id: Optional[Mapping[int, Optional[int]]] = None,
     ) -> Dict[str, Any]:
         bg_elements = (
             all_elements_for_ground_shield
@@ -442,7 +465,10 @@ class LayoutGraphExtractor:
             else active_elements
         )
         v_feat = self.build_node_features(active_elements, bg_elements)
-        e_idx, e_feat = self.build_edge_features(active_elements)
+        e_idx, e_feat = self.build_edge_features(
+            active_elements,
+            partition_owner_by_id=partition_owner_by_id,
+        )
         return {
             'node_features': v_feat,
             'edge_index': e_idx,
@@ -659,6 +685,8 @@ class LayoutGraphExtractor:
     def build_edge_features(
         self,
         elements: Sequence[RectangleElement],
+        *,
+        partition_owner_by_id: Optional[Mapping[int, Optional[int]]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Build bidirectional edge indices and 22-D E(2)-invariant edge feature matrix."""
         cfg = self.stackup
@@ -715,6 +743,12 @@ class LayoutGraphExtractor:
 
                 same_net = 1.0 if ei.net_name == ej.net_name else 0.0
                 if same_net > 0.5 and (dist_xy > 0.40 or abs_ld > 1.1):
+                    continue
+                if (
+                    same_net > 0.5
+                    and partition_owner_by_id is not None
+                    and _is_artificial_seam_edge(ei, ej, dist_xy, partition_owner_by_id)
+                ):
                     continue
 
                 zj_min, zj_max, tj = get_element_z_span(ej, cfg)
