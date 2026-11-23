@@ -17,6 +17,8 @@
 
 本工具旨在减少工程师重复拉线的工作，让人更专注于核心布局与匹配设计，不代替完整 LVS 或最终工艺签核。运行依赖的 Virtuoso、Calibre 及对应 PDK 由用户自行合法取得，本仓库不包含任何商业软件或工艺文件。
 
+## 软件截图
+
 <p align="center">
   <a href="docs/images/colayout-agent-regions.png">
     <img src="docs/images/colayout-agent-regions.png" width="900" alt="CoLayout 操作区协作界面">
