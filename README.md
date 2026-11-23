@@ -21,13 +21,13 @@
 
 <p align="center">
   <a href="docs/images/colayout-agent-regions.png">
-    <img src="docs/images/colayout-agent-regions.png" width="900" alt="CoLayout 操作区协作界面">
+    <img src="docs/images/colayout-agent-regions.png" width="760" alt="CoLayout 操作区协作界面">
   </a>
 </p>
 
 <p align="center">
   <a href="docs/images/colayout-routed-layout.png">
-    <img src="docs/images/colayout-routed-layout.png" width="900" alt="CoLayout 版图界面">
+    <img src="docs/images/colayout-routed-layout.png" width="760" alt="CoLayout 版图界面">
   </a>
 </p>
 
