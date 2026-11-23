@@ -9,6 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_BINARY = {
     'colayout_lite/assets/branding/colayout-e2.png',
     'colayout_lite/assets/branding/colayout-e2.ico',
+    # Real UI screenshots selected by the project owner for the README.
+    'docs/images/colayout-agent-regions.png',
+    'docs/images/colayout-routed-layout.png',
 }
 
 
