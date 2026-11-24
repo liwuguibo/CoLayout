@@ -55,5 +55,7 @@ procedure(ltMppDelete(o deleted)
   ; definition able to emit stale subparts in a separate XStream process.
   ; Capture exact membership first; never discover children spatially.
   unless(rodUnNameShape(r) error("MPP_UNNAME_FAILED"))
-  foreach(v members when(dbIsId(v) unless(dbDeleteObject(v) error("MPP_DELETE_FAILED"))))
+  foreach(v members when(dbIsId(v)
+    when(lbIds[v] lbObjects[lbIds[v]]=nil lbIds[v]=nil)
+    unless(dbDeleteObject(v) error("MPP_DELETE_FAILED"))))
   when(setof(v members dbIsId(v)) error("MPP_DELETE_INCOMPLETE")) t))

@@ -252,15 +252,14 @@ class WorkSessions:
         if self._actor is not None:
             raise LiteError('WORK_SESSION_REENTRANT')
         from .editor import projected
-        from .regions.query import owner_map, descendants
-        from .regions.models import overlaps
+        from .regions.query import owner_map, descendants, object_bounds
+        from .regions.models import enclosing_scope, overlaps
         from .sync_checks import canonical_object
-        from .cooperative_sync import operation_scope_id
 
         old, new = projected(before), projected(after)
         owners, new_owners = owner_map(before), owner_map(after)
-        old_op_map = {op.uid: op for op in before.operations}
-        new_op_map = {op.uid: op for op in after.operations}
+        old_base_only = before.model_copy(update={'operations': (), 'guard_previews': {}})
+        new_base_only = after.model_copy(update={'operations': (), 'guard_previews': {}})
 
         for session in self._sessions.values():
             rid_root = session.region_id
@@ -313,15 +312,26 @@ class WorkSessions:
             }
             if old_keeps != new_keeps:
                 raise LiteError('WORK_SESSIONS_ACTIVE', f'操作区 {rid_root} 禁布约束发生变化。')
-            for uid, op in old_op_map.items():
-                if operation_scope_id(before, op, profile) in old_subtree:
-                    other = new_op_map.get(uid)
-                    if other is None or other.action != op.action or other.shape != op.shape or other.placement != op.placement or other.guard != op.guard:
-                        raise LiteError(
-                            'WORK_SESSIONS_ACTIVE',
-                            f'操作区 {rid_root}（{session.owner}）的未决操作不可在任务运行中提交或丢弃，请先结束该操作区任务。',
-                            region_id=rid_root,
-                        )
+            old_deleted = {
+                uid
+                for uid in before.baseline.objects.keys() - old.keys()
+                if uid not in before.baseline.text_owners
+                and (b := object_bounds(old_base_only, before.baseline.objects[uid], profile)) is not None
+                and enclosing_scope(before.local_data.regions, b) in old_subtree
+            }
+            new_deleted = {
+                uid
+                for uid in after.baseline.objects.keys() - new.keys()
+                if uid not in after.baseline.text_owners
+                and (b := object_bounds(new_base_only, after.baseline.objects[uid], profile)) is not None
+                and enclosing_scope(after.local_data.regions, b) in new_subtree
+            }
+            if old_deleted != new_deleted:
+                raise LiteError(
+                    'WORK_SESSIONS_ACTIVE',
+                    f'操作区 {rid_root}（{session.owner}）内的待删除状态不可在任务运行中提交或丢弃，请先结束该操作区任务。',
+                    region_id=rid_root,
+                )
 
     def validate(self, before, after, *, region_matrices=None):
         if not self._sessions:

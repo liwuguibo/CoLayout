@@ -8,12 +8,15 @@ non-fabricating native Virtuoso region warning guide specifications.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .circuit.query import rebind_layout
-from .editor import projected
+from .editor import intent_properties, projected
 from .groups import require_groups
 from .hierarchy import retain_display, same_dependencies
 from .local_models import require_references
-from .model import LiteError, Operation, Snapshot, Workspace, digest
+from .model import LiteError, Object, Operation, Placement, Snapshot, Workspace, digest
+from .mpp import placed
 from .regions.constraints import validate_pending, validate_workspace
 from .regions.models import enclosing_scope, overlaps
 from .regions.query import descendants, object_bounds, owner_map
@@ -107,41 +110,6 @@ def _union_bounds(boxes) -> tuple[tuple[int, int], tuple[int, int]] | None:
         (min(b[0][0] for b in valid), min(b[0][1] for b in valid)),
         (max(b[1][0] for b in valid), max(b[1][1] for b in valid)),
     )
-
-
-def operation_scope_id(w: Workspace, op: Operation, profile) -> str | None:
-    """Resolve the deepest enclosing OperationRegion owning an uncommitted Operation."""
-    owners = owner_map(w)
-    if op.uid in owners:
-        return owners[op.uid]
-    regions = w.local_data.regions
-    if not regions:
-        return None
-    base_only = w.model_copy(update={'operations': (), 'guard_previews': {}})
-    if op.action == 'delete' and op.uid in w.baseline.objects:
-        bounds = object_bounds(base_only, w.baseline.objects[op.uid], profile)
-        return enclosing_scope(regions, bounds) if bounds else None
-    if op.action == 'delete_guard':
-        guard_objs = [o for o in w.baseline.objects.values() if o.group_uid == op.uid]
-        for obj in guard_objs:
-            if obj.uid in owners:
-                return owners[obj.uid]
-        bounds = _union_bounds(object_bounds(base_only, o, profile) for o in guard_objs)
-        return enclosing_scope(regions, bounds) if bounds else None
-    proj = projected(w)
-    if op.action == 'guard':
-        guard_objs = [o for o in proj.values() if o.uid == op.uid or o.group_uid == op.uid]
-        for obj in guard_objs:
-            if obj.uid in owners:
-                return owners[obj.uid]
-        bounds = _union_bounds(object_bounds(w, o, profile) for o in guard_objs)
-        return enclosing_scope(regions, bounds) if bounds else None
-    obj = proj.get(op.uid)
-    if obj is not None:
-        bounds = object_bounds(w, obj, profile)
-        if bounds is not None:
-            return enclosing_scope(regions, bounds)
-    return None
 
 
 def _has_structural_conflict(w: Workspace, current: Snapshot) -> bool:
@@ -348,77 +316,419 @@ def analyze_virtuoso_delta(w: Workspace, current: Snapshot, profile) -> dict:
     }
 
 
-def _op_bounds(w: Workspace, base_only: Workspace, proj: dict, op: Operation, profile):
+def guard_specs_for_workspace(w: Workspace) -> dict[str, dict[str, Any]]:
+    """Collect guard generation specs from guard_previews with operations fallback."""
+    specs: dict[str, dict[str, Any]] = {}
+    for uid, preview in w.guard_previews.items():
+        if isinstance(preview, dict) and preview.get('guard') is not None:
+            specs[uid] = preview['guard']
+    for op in w.operations:
+        if op.action == 'guard' and op.guard and op.uid not in specs:
+            specs[op.uid] = op.guard
+    return specs
+
+
+def guard_final_placement(uid: str, final_obj: Object, preview: dict[str, Any] | None) -> Placement | None:
+    """Return final Placement if the created guard moved from its preview anchor."""
+    raw = (preview or {}).get('objects', {}).get(uid)
+    if raw is None:
+        return final_obj.placement
+    initial = Object.model_validate(raw)
+    return final_obj.placement if final_obj.placement != initial.placement else None
+
+
+def _local_snapshot_diffs(
+    w: Workspace,
+) -> tuple[dict[str, Object], set[str], set[str], set[str]]:
+    base_objs = w.baseline.objects
+    local_objs = projected(w, text_owners=w.baseline.text_owners)
+    ignored_text = set(w.baseline.text_owners.keys())
+
+    created_uids = {uid for uid in local_objs.keys() - base_objs.keys() if uid not in ignored_text}
+    deleted_uids = {uid for uid in base_objs.keys() - local_objs.keys() if uid not in ignored_text}
+    modified_uids = {
+        uid
+        for uid in (base_objs.keys() & local_objs.keys()) - ignored_text
+        if canonical_object(base_objs[uid]) != canonical_object(local_objs[uid])
+    }
+    return local_objs, created_uids, modified_uids, deleted_uids
+
+
+def local_snapshot_diff_scopes(
+    w: Workspace, profile
+) -> tuple[dict[str, Object], set[str], set[str], set[str], dict[str, str | None]]:
+    """Compute net local differences purely between baseline and projected final state."""
+    base_objs = w.baseline.objects
+    local_objs, created_uids, modified_uids, deleted_uids = _local_snapshot_diffs(w)
+
+    owners = owner_map(w)
+    regions = w.local_data.regions
+    base_only = w.model_copy(update={'operations': (), 'guard_previews': {}})
+    scope_by_uid: dict[str, str | None] = {}
+
+    for uid in created_uids | modified_uids:
+        if uid in owners:
+            scope_by_uid[uid] = owners[uid]
+        elif regions:
+            bounds = object_bounds(w, local_objs[uid], profile)
+            scope_by_uid[uid] = enclosing_scope(regions, bounds) if bounds else None
+        else:
+            scope_by_uid[uid] = None
+
+    group_scope_cache: dict[str, str | None] = {}
+    for uid in deleted_uids:
+        if uid in owners:
+            scope_by_uid[uid] = owners[uid]
+        elif regions:
+            obj = base_objs[uid]
+            if obj.group_uid and obj.mpp is None:
+                gid = obj.group_uid
+                if gid not in group_scope_cache:
+                    members = [o for o in base_objs.values() if o.group_uid == gid]
+                    member_scope = next((owners[m.uid] for m in members if m.uid in owners), None)
+                    if member_scope is None:
+                        bounds = _union_bounds(
+                            object_bounds(base_only, m, profile) for m in members
+                        )
+                        member_scope = enclosing_scope(regions, bounds) if bounds else None
+                    group_scope_cache[gid] = member_scope
+                scope_by_uid[uid] = group_scope_cache[gid]
+            else:
+                bounds = object_bounds(base_only, obj, profile)
+                scope_by_uid[uid] = enclosing_scope(regions, bounds) if bounds else None
+        else:
+            scope_by_uid[uid] = None
+
+    return local_objs, created_uids, modified_uids, deleted_uids, scope_by_uid
+
+
+def _transformed_text_owners(
+    base_snapshot: Snapshot, desired_objects: dict[str, Object]
+) -> dict[str, Object]:
+    from .geometry import ORIENT, box, compose, transform
+
+    updated = dict(desired_objects)
+    for text_uid, parent_uid in base_snapshot.text_owners.items():
+        old_parent = base_snapshot.objects.get(parent_uid)
+        new_parent = updated.get(parent_uid)
+        text_obj = updated.get(text_uid)
+        if (
+            old_parent is None
+            or new_parent is None
+            or text_obj is None
+            or old_parent.placement is None
+            or new_parent.placement is None
+            or old_parent.placement == new_parent.placement
+            or not text_obj.bbox
+        ):
+            continue
+        a, b, c, d = ORIENT[old_parent.placement.orientation]
+        x, y = old_parent.placement.origin
+        inverse = (a, c, b, d, -a * x - c * y, -b * x - d * y)
+        delta = compose(
+            transform(new_parent.placement.origin, new_parent.placement.orientation),
+            inverse,
+        )
+        updated[text_uid] = text_obj.model_copy(update={'bbox': box(text_obj.bbox, delta)})
+    return updated
+
+
+def overlay_local_snapshot(
+    w: Workspace,
+    base_snapshot: Snapshot,
+    profile=None,
+    *,
+    active_scopes: set[str | None] | None = None,
+    only_uids: set[str] | None = None,
+) -> dict[str, Object]:
+    """Overlay CoLayout's final reviewed region diffs directly onto base_snapshot."""
+    if active_scopes is not None:
+        local_objs, created_uids, modified_uids, deleted_uids, scope_by_uid = (
+            local_snapshot_diff_scopes(w, profile)
+        )
+    else:
+        local_objs, created_uids, modified_uids, deleted_uids = _local_snapshot_diffs(w)
+        scope_by_uid = {}
+
+    def selected(uid: str) -> bool:
+        if active_scopes is not None and scope_by_uid[uid] not in active_scopes:
+            return False
+        if only_uids is not None and uid not in only_uids:
+            return False
+        return True
+
+    desired = dict(base_snapshot.objects)
+    for uid in deleted_uids:
+        if selected(uid):
+            desired.pop(uid, None)
+
+    for uid in modified_uids:
+        if not selected(uid):
+            continue
+        old_obj = desired.get(uid)
+        local_obj = local_objs[uid]
+        if old_obj is None:
+            desired[uid] = local_obj
+            continue
+        if old_obj.kind == 'inst':
+            base_old = w.baseline.objects[uid]
+            if (
+                local_obj.placement is None
+                or canonical_object(base_old.model_copy(update={'placement': local_obj.placement}))
+                != canonical_object(local_obj)
+            ):
+                raise LiteError('SOURCE_CONFLICT', f'对象 {uid} 本地更改超出位姿变换范围。', uid=uid)
+            desired[uid] = old_obj.model_copy(update={'placement': local_obj.placement})
+        elif old_obj.mpp is not None:
+            base_old = w.baseline.objects[uid]
+            if (
+                local_obj.placement is None
+                or canonical_object(placed(base_old, local_obj.placement))
+                != canonical_object(local_obj)
+            ):
+                raise LiteError('SOURCE_CONFLICT', f'MPP 对象 {uid} 本地更改超出位姿变换范围。', uid=uid)
+            desired[uid] = placed(old_obj, local_obj.placement)
+        elif local_obj.shape is not None:
+            desired[uid] = old_obj.model_copy(
+                update={
+                    'kind': local_obj.shape.kind,
+                    'shape': local_obj.shape,
+                    'properties': intent_properties(old_obj.properties, local_obj.shape.net_intent),
+                }
+            )
+        else:
+            desired[uid] = local_obj
+
+    for uid in created_uids:
+        if not selected(uid):
+            continue
+        if uid in desired:
+            raise LiteError('UID_EXISTS', uid)
+        desired[uid] = local_objs[uid]
+
+    return _transformed_text_owners(base_snapshot, desired)
+
+
+def synthesize_operations_from_target(
+    baseline: Snapshot,
+    target_objects: dict[str, Object],
+    *,
+    guard_specs: dict[str, dict[str, Any]] | None = None,
+    guard_previews: dict[str, Any] | None = None,
+) -> tuple[tuple[Operation, ...], dict[str, Any]]:
+    """Synthesize normalized Operations purely from (baseline, target_objects) without edit history."""
+    base_objs = baseline.objects
+    ignored_text = set(baseline.text_owners.keys())
+    specs = guard_specs or {}
+    previews = guard_previews or {}
+    ops: list[Operation] = []
+    used_previews: dict[str, Any] = {}
+
+    deleted_groups: set[str] = set()
+    for uid in sorted(set(base_objs.keys()) - set(target_objects.keys()) - ignored_text):
+        base_obj = base_objs[uid]
+        if base_obj.group_uid and base_obj.mpp is None:
+            gid = base_obj.group_uid
+            if any(o.group_uid == gid for o in target_objects.values()):
+                raise LiteError('PROTECTED_OBJECT', uid)
+            if gid not in deleted_groups:
+                deleted_groups.add(gid)
+                ops.append(Operation(action='delete_guard', uid=gid))
+        else:
+            ops.append(Operation(action='delete', uid=uid, before=digest(base_obj.semantic())))
+
+    for uid in sorted((set(base_objs.keys()) & set(target_objects.keys())) - ignored_text):
+        base_obj = base_objs[uid]
+        target_obj = target_objects[uid]
+        if canonical_object(base_obj) == canonical_object(target_obj):
+            continue
+        before_digest = digest(base_obj.semantic())
+        if target_obj.kind == 'inst' or target_obj.mpp is not None:
+            ops.append(
+                Operation(
+                    action='transform',
+                    uid=uid,
+                    before=before_digest,
+                    placement=target_obj.placement,
+                )
+            )
+        elif target_obj.shape is not None:
+            ops.append(
+                Operation(
+                    action='update',
+                    uid=uid,
+                    before=before_digest,
+                    shape=target_obj.shape,
+                )
+            )
+        else:
+            raise LiteError('INSTANCE_OR_OPAQUE_READ_ONLY', uid)
+
+    for uid in sorted(set(target_objects.keys()) - set(base_objs.keys()) - ignored_text):
+        target_obj = target_objects[uid]
+        if target_obj.mpp is not None:
+            spec = specs.get(uid)
+            preview = previews.get(uid)
+            if not spec or not preview or preview.get('command_digest') != digest(spec):
+                raise LiteError('GUARD_PREVIEW_REQUIRED')
+            pl = guard_final_placement(uid, target_obj, preview)
+            ops.append(Operation(action='guard', uid=uid, guard=spec, placement=pl))
+            used_previews[uid] = preview
+        elif target_obj.shape is not None:
+            ops.append(Operation(action='create', uid=uid, shape=target_obj.shape))
+        else:
+            raise LiteError('INSTANCE_OR_OPAQUE_READ_ONLY', uid)
+
+    return tuple(ops), used_previews
+
+
+def build_snapshot_overwrite_commands(
+    target_objects: dict[str, Object],
+    current: Snapshot,
+    *,
+    profile=None,
+    guard_specs: dict[str, dict[str, Any]] | None = None,
+    guard_previews: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Build history-free Virtuoso overwrite commands comparing target_objects against current."""
+    from .codec import shape_payload
+
+    curr_objs = current.objects
+    ignored_text = set(current.text_owners.keys())
+    specs = guard_specs or {}
+    previews = guard_previews or {}
+    commands: list[dict[str, Any]] = []
+
+    deleted_groups: set[str] = set()
+    for uid in sorted(set(curr_objs.keys()) - set(target_objects.keys()) - ignored_text):
+        old_obj = curr_objs[uid]
+        if old_obj.group_uid and old_obj.mpp is None:
+            gid = old_obj.group_uid
+            if any(o.group_uid == gid for o in target_objects.values()):
+                raise LiteError('PROTECTED_OBJECT', uid)
+            if gid not in deleted_groups:
+                deleted_groups.add(gid)
+                commands.append({'action': 'delete_guard', 'uid': gid})
+        else:
+            commands.append({'action': 'delete', 'uid': uid})
+
+    for uid in sorted((set(curr_objs.keys()) & set(target_objects.keys())) - ignored_text):
+        old_obj = curr_objs[uid]
+        new_obj = target_objects[uid]
+        if canonical_object(old_obj) == canonical_object(new_obj):
+            continue
+        if new_obj.kind == 'inst' or old_obj.mpp is not None:
+            if new_obj.placement is None:
+                raise LiteError('EXPECTED_INSTANCE_OR_MPP', uid)
+            expected = (
+                old_obj.model_copy(update={'placement': new_obj.placement})
+                if new_obj.kind == 'inst'
+                else placed(old_obj, new_obj.placement)
+            )
+            if canonical_object(expected) != canonical_object(new_obj):
+                raise LiteError(
+                    'SOURCE_CONFLICT', f'对象 {uid} 状态变化不能仅通过位姿更新完成。', uid=uid
+                )
+            commands.append(
+                {
+                    'action': 'transform',
+                    'uid': uid,
+                    'placement': {
+                        'origin': list(map(str, new_obj.placement.origin)),
+                        'orientation': new_obj.placement.orientation,
+                    },
+                }
+            )
+
+    for uid in sorted((set(curr_objs.keys()) & set(target_objects.keys())) - ignored_text):
+        old_obj = curr_objs[uid]
+        new_obj = target_objects[uid]
+        if canonical_object(old_obj) == canonical_object(new_obj):
+            continue
+        if new_obj.kind == 'inst' or old_obj.mpp is not None:
+            continue
+        if new_obj.shape is None:
+            raise LiteError('INSTANCE_OR_OPAQUE_READ_ONLY', uid)
+        shape = new_obj.shape
+        if profile is not None and shape.kind == 'stdVia':
+            shape = shape.model_copy(update={'via_parameters': profile.effective_via(shape)})
+        commands.append({'action': 'update', 'uid': uid, 'shape': shape_payload(shape)})
+
+    for uid in sorted(set(target_objects.keys()) - set(curr_objs.keys()) - ignored_text):
+        new_obj = target_objects[uid]
+        if new_obj.mpp is not None:
+            spec = specs.get(uid)
+            preview = previews.get(uid)
+            if not spec or not preview or preview.get('command_digest') != digest(spec):
+                raise LiteError('GUARD_PREVIEW_REQUIRED')
+            cmd: dict[str, Any] = {'action': 'guard', 'uid': uid, 'guard': spec}
+            pl = guard_final_placement(uid, new_obj, preview)
+            if pl is not None:
+                cmd['placement'] = {
+                    'origin': list(map(str, pl.origin)),
+                    'orientation': pl.orientation,
+                }
+            commands.append(cmd)
+        elif new_obj.shape is not None:
+            shape = new_obj.shape
+            if profile is not None and shape.kind == 'stdVia':
+                shape = shape.model_copy(update={'via_parameters': profile.effective_via(shape)})
+            commands.append({'action': 'create', 'uid': uid, 'shape': shape_payload(shape)})
+        else:
+            raise LiteError('INSTANCE_OR_OPAQUE_READ_ONLY', uid)
+
+    return commands
+
+
+def remaining_local_operations(
+    full_w: Workspace,
+    tx_w: Workspace,
+    target_baseline: Snapshot,
+    profile,
+) -> tuple[tuple[Operation, ...], dict[str, Any]]:
+    """Synthesize surviving deferred local operations onto target_baseline without history replay."""
+    _, full_created, full_modified, full_deleted = _local_snapshot_diffs(full_w)
+    _, tx_created, tx_modified, tx_deleted = _local_snapshot_diffs(tx_w)
+    unsynced_uids = (full_created | full_modified | full_deleted) - (
+        tx_created | tx_modified | tx_deleted
+    )
+    if not unsynced_uids:
+        return (), {}
+    desired = overlay_local_snapshot(
+        full_w, target_baseline, profile, only_uids=unsynced_uids
+    )
+    return synthesize_operations_from_target(
+        target_baseline,
+        desired,
+        guard_specs=guard_specs_for_workspace(full_w),
+        guard_previews=full_w.guard_previews,
+    )
+
+
+def _uid_diff_bounds(
+    w: Workspace, base_only: Workspace, local_objs: dict[str, Object], uid: str, profile
+):
     boxes = []
-    if op.action == 'delete_guard':
-        for obj in w.baseline.objects.values():
-            if obj.group_uid == op.uid:
-                boxes.append(object_bounds(base_only, obj, profile))
-        return [b for b in boxes if b is not None]
-    if op.action in ('update', 'delete', 'transform') and op.uid in w.baseline.objects:
-        b = object_bounds(base_only, w.baseline.objects[op.uid], profile)
+    if uid in w.baseline.objects:
+        b = object_bounds(base_only, w.baseline.objects[uid], profile)
         if b is not None:
             boxes.append(b)
-    if op.action == 'guard':
-        for obj in proj.values():
-            if obj.uid == op.uid or obj.group_uid == op.uid:
-                b = object_bounds(w, obj, profile)
-                if b is not None:
-                    boxes.append(b)
-        return boxes
-    if op.uid in proj and op.action != 'delete':
-        b = object_bounds(w, proj[op.uid], profile)
+    if uid in local_objs:
+        b = object_bounds(w, local_objs[uid], profile)
         if b is not None:
             boxes.append(b)
     return boxes
 
 
-def rebind_operations(
-    operations: tuple[Operation, ...] | list[Operation],
-    source_baseline: Snapshot,
-    target_snapshot: Snapshot,
-) -> tuple[Operation, ...]:
-    """Verify precondition equivalence and update op.before hashes onto target_snapshot."""
-    rebound = []
-    for op in operations:
-        if op.action == 'create':
-            if op.uid in target_snapshot.objects:
-                raise LiteError('UID_EXISTS', op.uid)
-            rebound.append(op)
-        elif op.action == 'guard':
-            if any(o.uid == op.uid or o.group_uid == op.uid for o in target_snapshot.objects.values()):
-                raise LiteError('GROUP_EXISTS', op.uid)
-            rebound.append(op)
-        elif op.action == 'delete_guard':
-            members = [o for o in target_snapshot.objects.values() if o.group_uid == op.uid]
-            if not members:
-                raise LiteError('GROUP_MISSING', op.uid)
-            rebound.append(op)
-        else:
-            old_obj = source_baseline.objects.get(op.uid)
-            new_obj = target_snapshot.objects.get(op.uid)
-            if old_obj is None or new_obj is None:
-                raise LiteError('OBJECT_CONFLICT', f'对象 {op.uid} 在最新 Virtuoso 版图中不存在。', uid=op.uid)
-            if op.before != digest(old_obj.semantic()):
-                raise LiteError('OBJECT_CONFLICT', f'本地草稿前置摘要与基准不一致：{op.uid}', uid=op.uid)
-            if canonical_object(old_obj) != canonical_object(new_obj):
-                raise LiteError('OBJECT_CONFLICT', f'Virtuoso 中的对象 {op.uid} 已被修改，无法合并。', uid=op.uid)
-            rebound.append(op.model_copy(update={'before': digest(new_obj.semantic())}))
-    return tuple(rebound)
-
-
-def _without_retained_creations(local_data, retained_ops: tuple[Operation, ...], retained_guard_previews: dict):
-    """Strip UIDs created only in deferred retained_ops from region membership during partial tx validation."""
-    retained_uids = {op.uid for op in retained_ops if op.action == 'create'}
-    for preview in retained_guard_previews.values():
-        retained_uids.update(preview.get('objects', {}).keys())
-    if not retained_uids:
+def _without_deferred_creations(local_data, deferred_created_uids: set[str]):
+    """Strip UIDs created only in deferred scopes from region membership during partial tx validation."""
+    if not deferred_created_uids:
         return local_data
     regions = {
         rid: region.model_copy(
-            update={'object_uids': tuple(u for u in region.object_uids if u not in retained_uids)}
+            update={'object_uids': tuple(u for u in region.object_uids if u not in deferred_created_uids)}
         )
-        if any(u in retained_uids for u in region.object_uids)
+        if any(u in deferred_created_uids for u in region.object_uids)
         else region
         for rid, region in local_data.regions.items()
     }
@@ -435,11 +745,11 @@ def rebase_workspace_onto_virtuoso(
     scope_region_ids: set[str] | None = None,
     exclude_region_ids: set[str] | None = None,
 ) -> tuple[Workspace, Workspace, tuple[Operation, ...], dict]:
-    """Merge Virtuoso's outside-region changes beneath CoLayout's pending operations.
+    """Merge Virtuoso's outside-region changes beneath CoLayout's final reviewed region snapshots.
 
     Returns `(full_rebased_w, tx_w, retained_ops, delta)`:
-    - `full_rebased_w`: merged baseline + ALL rebound CoLayout operations.
-    - `tx_w`: merged baseline + only operations selected for immediate Virtuoso commit.
+    - `full_rebased_w`: merged baseline + synthesized CoLayout final-snapshot operations.
+    - `tx_w`: merged baseline + synthesized operations selected for immediate Virtuoso overwrite.
     - `retained_ops`: operations deferred locally (when scoping out busy/other regions).
     - `delta`: Virtuoso added/modified/deleted UID summary.
     """
@@ -473,25 +783,26 @@ def rebase_workspace_onto_virtuoso(
                 excluded_scopes.update(descendants(w, rid))
 
     base_only = w.model_copy(update={'operations': (), 'guard_previews': {}})
-    proj = projected(w)
+    local_objs, created_uids, modified_uids, deleted_uids, scope_by_uid = (
+        local_snapshot_diff_scopes(w, profile)
+    )
+    local_changed_uids = created_uids | modified_uids | deleted_uids
 
-    selected_indices: list[int] = []
-    deferred_indices: list[int] = []
-    for idx, op in enumerate(w.operations):
-        op_scope = operation_scope_id(w, op, profile)
-        if op.uid in changed_uids:
+    for uid in sorted(local_changed_uids):
+        uid_scope = scope_by_uid[uid]
+        if uid in changed_uids:
             require_unchanged(w, current)
-        if op_scope is None and changed_uids:
-            op_boxes = _op_bounds(w, base_only, proj, op, profile)
-            if not op_boxes or missing_v_bounds or any(overlaps(ob, vb) for ob in op_boxes for vb in v_boxes):
+        if uid_scope is None and changed_uids:
+            uid_boxes = _uid_diff_bounds(w, base_only, local_objs, uid, profile)
+            if not uid_boxes or missing_v_bounds or any(overlaps(ub, vb) for ub in uid_boxes for vb in v_boxes):
                 require_unchanged(w, current)
-        in_scope = (allowed_scopes is None or op_scope in allowed_scopes) and (
-            op_scope not in excluded_scopes
-        )
-        if in_scope:
-            selected_indices.append(idx)
-        else:
-            deferred_indices.append(idx)
+
+    all_scopes = set(scope_by_uid.values())
+    selected_scopes = {
+        s
+        for s in all_scopes
+        if (allowed_scopes is None or s in allowed_scopes) and (s not in excluded_scopes)
+    }
 
     merged_baseline = retain_display(w.baseline, current)
     merged_circuit = circuit if circuit is not None else w.circuit
@@ -501,28 +812,46 @@ def rebase_workspace_onto_virtuoso(
         else rebind_layout(w.layout_connectivity, merged_baseline)
     )
 
-    if not same_snapshot(w.baseline, current):
-        # Preserve original operation ordering after rebinding to Virtuoso's baseline.
-        all_rebound = rebind_operations(w.operations, w.baseline, merged_baseline)
-    else:
-        all_rebound = tuple(w.operations)
-
-    commit_ops = tuple(all_rebound[i] for i in selected_indices)
-    retained_ops = tuple(all_rebound[i] for i in deferred_indices)
-
-    if any(u not in merged_baseline.objects for r in w.local_data.regions.values() for u in r.object_uids):
-        # Region intrusions already raised VIRTUOSO_EDIT_IN_REGION above; only outside
-        # orphaned references remain possible if a referenced local group/pin/route disappeared.
-        pass
+    guard_specs = guard_specs_for_workspace(w)
+    full_desired = overlay_local_snapshot(w, merged_baseline, profile)
+    tx_desired = overlay_local_snapshot(
+        w, merged_baseline, profile, active_scopes=selected_scopes
+    )
+    all_ops, full_previews = synthesize_operations_from_target(
+        merged_baseline,
+        full_desired,
+        guard_specs=guard_specs,
+        guard_previews=w.guard_previews,
+    )
+    commit_ops, commit_previews = synthesize_operations_from_target(
+        merged_baseline,
+        tx_desired,
+        guard_specs=guard_specs,
+        guard_previews=w.guard_previews,
+    )
+    deferred_uids = {
+        uid for uid in local_changed_uids if scope_by_uid[uid] not in selected_scopes
+    }
+    deferred_groups = {
+        w.baseline.objects[uid].group_uid
+        for uid in deferred_uids & deleted_uids
+        if w.baseline.objects[uid].group_uid and w.baseline.objects[uid].mpp is None
+    }
+    retained_ops = tuple(
+        op
+        for op in all_ops
+        if op.uid in deferred_uids or (op.action == 'delete_guard' and op.uid in deferred_groups)
+    )
 
     full_rebased_w = w.model_copy(
         update={
             'baseline': merged_baseline,
             'circuit': merged_circuit,
             'layout_connectivity': merged_connectivity,
-            'operations': all_rebound,
+            'operations': all_ops,
+            'guard_previews': full_previews,
             'revision': w.revision + 1 if not same_snapshot(w.baseline, current) else w.revision,
-            'state': 'editing' if all_rebound else 'clean',
+            'state': 'editing' if all_ops else 'clean',
         }
     )
     require_references(full_rebased_w.local_data, projected(full_rebased_w))
@@ -542,10 +871,10 @@ def rebase_workspace_onto_virtuoso(
     else:
         validate_workspace(full_rebased_w, profile)
 
-    commit_uids = {op.uid for op in commit_ops}
-    retained_previews = {k: v for k, v in w.guard_previews.items() if k not in commit_uids}
-    commit_previews = {k: v for k, v in w.guard_previews.items() if k in commit_uids}
-    tx_local_data = _without_retained_creations(w.local_data, retained_ops, retained_previews)
+    deferred_created_uids = {
+        uid for uid in created_uids if scope_by_uid[uid] not in selected_scopes
+    }
+    tx_local_data = _without_deferred_creations(w.local_data, deferred_created_uids)
     tx_w = full_rebased_w.model_copy(
         update={
             'local_data': tx_local_data,
@@ -554,8 +883,7 @@ def rebase_workspace_onto_virtuoso(
             'state': 'editing' if commit_ops else 'clean',
         }
     )
-    if tx_ops_need_refs := tx_w.operations:
-        del tx_ops_need_refs
+    if tx_w.operations:
         require_references(tx_w.local_data, projected(tx_w))
     validate_pending(tx_w, profile) if tx_w.operations else validate_workspace(tx_w, profile)
 

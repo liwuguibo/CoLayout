@@ -98,7 +98,7 @@ Linux 版本与 Windows 复用同一个 Qt 工作区、版图模型、Agent API 
 ## 软件的基本使用逻辑
 
 - 兄弟区、父子区可分别接入 Agent；同一区域独占编辑。
-- Virtuoso 与 CoLayout 支持解耦空间协同：划定、缩放或解散操作区时，自动向 Virtuoso 同步不可制造红框警示边界（`[CoLayout AI Region: ...] DO NOT EDIT INSIDE`）。人类可在 Virtuoso GUI 中直接编辑操作区外部版图，AI 在操作区内工作；只要物理位置错开，随时点击“读取”/“写入”或调用 Agent `workspace pull`/`sync`/`release_region(sync_to_virtuoso=true)` 即可立即合并，保留未提交草稿与运行中 Agent 租约。若 Virtuoso 编辑落入操作区（`VIRTUOSO_EDIT_IN_REGION`）或存在未保存修改（`VIRTUOSO_UNSAVED_CHANGES`），同步会明确报错拦截并保留双方已有工作。
+- Virtuoso 与 CoLayout 支持解耦空间协同：划定、缩放或解散操作区时，自动向 Virtuoso 同步基于非数据库瞬态高亮集的不可制造警示边界（`[CoLayout AI Region: ...] DO NOT EDIT INSIDE`），不污染 Layout XL 保存状态。人类可在 Virtuoso GUI 中直接编辑操作区外部版图，AI 在操作区内工作；只要物理位置错开，随时点击“读取”/“写入”或调用 Agent `workspace pull`/`sync`/`release_region(sync_to_virtuoso=true)` 即可按**操作区最终快照无历史覆盖**直接合并（区内未改动旧走线与 `inst` 原生 Layout XL 绑定原地保留，仅删改/重铺变动可写连线、标准过孔与保护环，并保留区外人类编辑与运行中兄弟租约）。若 Virtuoso 编辑落入操作区（`VIRTUOSO_EDIT_IN_REGION`）或存在未保存修改（`VIRTUOSO_UNSAVED_CHANGES`），同步会明确报错拦截并保留双方已有工作。
 - 父层只管理直接子区外框和接口，不越层编辑子区内部。
 - 可以先用方位 PIN 完成主体，再收紧操作区、转固定 PIN、完成真实引出。
 - 普通叶 PCell 参与检查；真正原生层次保持黑盒，只开放公开 PIN 和明确设置的局部布线豁免。

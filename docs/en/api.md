@@ -67,8 +67,8 @@ Humans can edit directly in the Virtuoso GUI outside operation regions while AI 
 - `workspace` supports cooperative actions:
   - `status`: returns a `regions` summary list (`id`, `name`, `parent_id`, `pin_mode`, `bounds_um`).
   - `create_region` (`bounds_um`, optional `name`/`pin_mode`/`parent_id`/`blocked_layers`/`note` — creates an `OperationRegion` and projects a non-fabricating warning boundary + ASCII banner in Virtuoso), `dissolve_region` (`region_id`), and `sync_regions` (manually redraws all region warning frames in Virtuoso).
-  - `pull` (three-way merge of saved outside-region Virtuoso edits under CoLayout drafts and active leases).
-  - `sync` (commits all non-leased edits onto Virtuoso's latest outside-region layout while keeping busy sibling drafts/leases, or scopes to a single completed `region_id` subtree; fails with `WORK_SESSIONS_ACTIVE` if that subtree still has active claims).
+  - `pull` (spatial merge of saved outside-region Virtuoso edits beneath CoLayout's final region snapshots and active leases).
+  - `sync` (history-free final-snapshot overwrite of all non-leased region edits — or one specified completed `region_id` subtree — onto Virtuoso's latest outside-region layout by `colayoutObjectId`, preserving untouched `oaRoute`s and in-place `inst` Layout XL bindings while keeping busy sibling drafts/leases; fails with `WORK_SESSIONS_ACTIVE` if that subtree still has active claims).
   - Raw `/call` invocations of `create_region`, `dissolve_region`, `pull` and `sync` require `expected_document_id` and `expected_revision`; the bundled `api.py workspace ...` CLI fetches them from `status` automatically.
 - `release_region(outcome="done", sync_to_virtuoso=true)` (CLI: `api.py --client <name> release --outcome done --sync-to-virtuoso`) releases an accepted region and immediately pushes only that region's subtree to Virtuoso.
 - CLI examples:

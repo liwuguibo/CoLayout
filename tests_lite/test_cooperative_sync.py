@@ -28,7 +28,7 @@ from colayout_lite.cooperative_sync import (
     build_region_guides,
 )
 from colayout_lite.document import save_document
-from colayout_lite.editor import Editor, projected
+from colayout_lite.editor import Editor, intent_properties, projected
 from colayout_lite.model import (
     LiteError,
     MultipartPath,
@@ -319,12 +319,19 @@ class FakeCoopNative:
                         )
                     else:
                         objs[uid] = objs[uid].model_copy(
-                            update={'shape': s, 'bbox': s.bbox, 'observed_net': s.net_intent}
+                            update={
+                                'shape': s,
+                                'bbox': s.bbox,
+                                'properties': intent_properties(objs[uid].properties, s.net_intent),
+                                'observed_net': s.net_intent,
+                            }
                         )
                 elif act == 'delete':
                     objs.pop(uid)
                 elif act == 'transform':
-                    pl = Placement.model_validate(cmd['placement'])
+                    pl_data = dict(cmd['placement'])
+                    pl_data['origin'] = [int(v) for v in pl_data['origin']]
+                    pl = Placement.model_validate(pl_data)
                     objs[uid] = objs[uid].model_copy(update={'placement': pl})
             next_c = str(int(self.current.counter) + 1)
             self.current = self.current.model_copy(update={'objects': objs, 'counter': next_c})
@@ -1209,3 +1216,300 @@ def test_consecutive_create_guard_without_sync_and_with_outside_virtuoso_edits(t
         with editor.work_sessions.actor(session.id, expected_revision=editor.w.revision, expected_pose_revision=session.pose_revision):
             adapter.guard_preview(editor, bbox=((500, 4000), (2500, 6000)), template=tpl, net_intent='VDD')
     assert err_g.value.code == 'VIRTUOSO_EDIT_IN_REGION'
+
+
+def test_snapshot_overwrite_ignores_edit_history_and_preserves_untouched_region_objects(tmp_path):
+    from colayout_lite.mpp import placed
+
+    prof = _coop_profile().model_copy(
+        update={
+            'guard_templates': [
+                {'library': 'TECH', 'name': 'pguard', 'definition': '(("M1" "drawing") nil nil nil)'}
+            ]
+        }
+    )
+    snap, circuit, connectivity = _initial_snapshot_and_context(prof)
+
+    in_route_keep = Object(
+        uid='in-route-untouched',
+        native_id='nat:in_route_keep',
+        kind='pathSeg',
+        bbox=((200, 200), (800, 200)),
+        shape=Shape(
+            kind='pathSeg',
+            lpp=('M1', 'drawing'),
+            points=((200, 200), (800, 200)),
+            width=100,
+            net_intent='NET_M_A',
+        ),
+        attributes={'name': 'IN_ROUTE_KEEP'},
+        properties=[
+            ['colayoutObjectId', 'string', ['string', 'in-route-untouched']],
+            ['colayoutNetIntent', 'string', ['string', 'NET_M_A']],
+        ],
+        observed_net='NET_M_A',
+        route_uid='r-in-keep',
+    )
+    in_del = _rect_obj('in-del', 200, 400, 800, 800, net='NET_M_A', name='IN_DEL')
+    in_edit = _rect_obj('in-edit', 3200, 400, 3800, 800, net='NET_M_A', name='IN_EDIT')
+    in_cancel = _rect_obj('in-cancel', 3200, 3200, 3800, 3600, net='NET_M_A', name='IN_CANCEL')
+    snap = snap.model_copy(
+        update={
+            'objects': {
+                **snap.objects,
+                'in-route-untouched': in_route_keep,
+                'in-del': in_del,
+                'in-edit': in_edit,
+                'in-cancel': in_cancel,
+            },
+            'routes': {
+                'r-in-keep': NativeRoute(
+                    uid='r-in-keep',
+                    members=('in-route-untouched',),
+                    status='normal',
+                    net='NET_M_A',
+                )
+            },
+            'opaque_counts': {**snap.opaque_counts, 'routes': 1},
+        }
+    )
+
+    class SnapshotNative(FakeCoopNative):
+        def __init__(self):
+            super().__init__(tmp_path, snap, prof, circuit, connectivity)
+            self.cells = {(snap.library, snap.cell): snap}
+            self.captured_requests = []
+
+        def read(self, library, cell):
+            return self.cells[(library, cell)], self.profile
+
+        def call(self, name, *values):
+            if name == 'lcClonePaired':
+                lib, src_cell, dst_cell, _seed = values
+                src = self.cells[(lib, src_cell)]
+                self.cells[(lib, dst_cell)] = src.model_copy(update={'cell': dst_cell, 'counter': '10'})
+                self.calls.append((name, values))
+                return ['copied', dst_cell]
+            if name == 'ltRelease':
+                return [1, 1, 0]
+            return super().call(name, *values)
+
+        def transact(self, library, cell, request):
+            if (library, cell) == (snap.library, snap.cell):
+                self.captured_requests.append(deepcopy(request))
+            cv = self.cells[(library, cell)]
+            saved_current = self.current
+            self.current = cv
+            try:
+                guard_ops = [cmd for cmd in request['operations'] if cmd['action'] == 'guard']
+                normal_req = {
+                    **request,
+                    'operations': [cmd for cmd in request['operations'] if cmd['action'] != 'guard'],
+                }
+                receipt = super().transact(library, cell, normal_req)
+                if guard_ops:
+                    objs = dict(self.current.objects)
+                    for cmd in guard_ops:
+                        guid = cmd['uid']
+                        spec = cmd['guard']
+                        pts = [[int(p[0]), int(p[1])] for p in spec['points']]
+                        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                        master = Shape(
+                            kind='path',
+                            lpp=('M1', 'drawing'),
+                            points=tuple(tuple(p) for p in pts),
+                            width=200,
+                            net_intent=spec.get('net_intent'),
+                        )
+                        gobj = Object(
+                            uid=guid,
+                            native_id=f'nat:{guid}',
+                            kind='mpp',
+                            bbox=((min(xs), min(ys)), (max(xs), max(ys))),
+                            mpp=MultipartPath(
+                                master=master,
+                                name=spec['template'],
+                                parts=[{'lpp': ['M1', 'drawing'], 'kind': 'rect', 'net_intent': spec.get('net_intent')}],
+                                native_definition=spec['definition'],
+                            ),
+                            placement=Placement(origin=tuple(pts[0])),
+                            attributes={'name': guid[:8]},
+                            properties=[
+                                ['colayoutObjectId', 'string', ['string', guid]],
+                                ['colayoutStructureUid', 'string', ['string', guid]],
+                                ['colayoutNetIntent', 'string', ['string', spec.get('net_intent') or '']],
+                            ],
+                            observed_net=spec.get('net_intent'),
+                            group_uid=None,
+                            read_only_reason=None,
+                            deletion_allowed=True,
+                        )
+                        if cmd.get('placement'):
+                            pl_data = dict(cmd['placement'])
+                            pl_data['origin'] = [int(v) for v in pl_data['origin']]
+                            gobj = placed(gobj, Placement.model_validate(pl_data))
+                        objs[guid] = gobj
+                    next_c = str(int(self.current.counter) + 1)
+                    self.current = self.current.model_copy(update={'objects': objs, 'counter': next_c})
+                self.cells[(library, cell)] = self.current
+                if (library, cell) == (saved_current.library, saved_current.cell):
+                    saved_current = self.current
+                return receipt
+            finally:
+                self.current = saved_current
+
+    fake = SnapshotNative()
+    adapter = Adapter(fake)
+    adapter.read = fake.read
+
+    def fake_read_pair(lib, cell, *, schematic=None):
+        s, p = fake.read(lib, cell)
+        c = fake.circuit.model_copy(
+            update={'source': fake.circuit.source.model_copy(update={'library': lib, 'cell': cell, 'counter': s.counter})}
+        )
+        conn = fake.connectivity.model_copy(
+            update={'source': fake.connectivity.source.model_copy(update={'library': lib, 'cell': cell, 'counter': s.counter})}
+        )
+        return s, p, c, conn
+
+    adapter.read_pair = fake_read_pair
+    fake.read_pair = fake_read_pair
+
+    editor = Editor(
+        Workspace(
+            baseline=snap,
+            profile_id=prof.id,
+            circuit=circuit,
+            layout_connectivity=connectivity,
+            connection_config=str(fake.config_path),
+        ),
+        prof,
+    )
+    a1 = RegionActions(editor).create((0, 0, 5000, 5000), 'Core_A')
+    editor.scope_id = a1
+
+    # Intermediate history inside Core_A: edit->delete, multi-edit, edit->revert, create->edit->delete, move->move, guard->move
+    editor.edit('in-del', bbox=((200, 400), (900, 900)))
+    editor.delete('in-del')
+
+    editor.edit('in-edit', bbox=((3200, 400), (4200, 900)), net_intent='NET_TMP')
+    editor.edit('in-edit', bbox=((3600, 1000), (4800, 2200)), net_intent='NET_FINAL')
+
+    editor.edit('in-cancel', bbox=((3100, 3100), (3900, 3700)))
+    editor.edit('in-cancel', bbox=((3200, 3200), (3800, 3600)))
+
+    tmp_uid = editor.create(Shape(kind='rect', lpp=('M2', 'drawing'), bbox=((200, 3200), (900, 3800)), net_intent='TMP'))
+    editor.edit(tmp_uid, bbox=((200, 3200), (1200, 3800)))
+    editor.delete(tmp_uid)
+
+    editor.place('inst-M_A', (3000, 1100), 'R90')
+    editor.place('inst-M_A', (3500, 1200), 'MY')
+
+    g1 = adapter.guard_preview(editor, bbox=((500, 3200), (1500, 4200)), template=prof.guard_templates[0], net_intent='NET_M_A')
+    editor.place(g1, (2800, 3400), 'R90')
+
+    editor.create(
+        Shape(kind='rect', lpp=('M2', 'drawing'), bbox=((200, 1800), (1000, 2400)), net_intent='NET_M_A'),
+        uid='final-ai',
+    )
+
+    committed = adapter.commit(editor.w, request_id='scheme-b-1')
+    assert committed.state == 'clean'
+    assert committed.operations == ()
+    assert len(fake.captured_requests) == 1
+    sent_ops = fake.captured_requests[0]['operations']
+
+    # No historical 'before' or 'mpp_before' digests sent; net actions follow phase order without intermediate noise
+    assert all('before' not in cmd and 'mpp_before' not in cmd for cmd in sent_ops)
+    phase_order = {'delete': 0, 'delete_guard': 0, 'transform': 1, 'update': 2, 'guard': 3, 'create': 3}
+    assert [phase_order[cmd['action']] for cmd in sent_ops] == sorted(
+        phase_order[cmd['action']] for cmd in sent_ops
+    )
+    assert {(cmd['action'], cmd['uid']) for cmd in sent_ops} == {
+        ('delete', 'in-del'),
+        ('transform', 'inst-M_A'),
+        ('update', 'in-edit'),
+        ('create', 'final-ai'),
+        ('guard', g1),
+    }
+    guard_cmd = next(cmd for cmd in sent_ops if cmd['uid'] == g1)
+    assert guard_cmd['placement'] == {'origin': ['2800', '3400'], 'orientation': 'R90'}
+
+    # Untouched region route shape + cancelled edit + reverted temp creation were never touched
+    assert 'in-route-untouched' not in [cmd['uid'] for cmd in sent_ops]
+    assert 'in-cancel' not in [cmd['uid'] for cmd in sent_ops]
+    assert tmp_uid not in [cmd['uid'] for cmd in sent_ops]
+    assert 'r-in-keep' in committed.baseline.routes
+    assert committed.baseline.objects['in-edit'].shape.bbox == ((3600, 1000), (4800, 2200))
+    assert committed.baseline.objects['in-edit'].shape.net_intent == 'NET_FINAL'
+    assert committed.baseline.objects['inst-M_A'].placement == Placement(origin=(3500, 1200), orientation='MY')
+    assert committed.baseline.objects[g1].placement == Placement(origin=(2800, 3400), orientation='R90')
+
+
+def test_stale_operation_before_digest_still_syncs_and_pulls_from_final_snapshot(tmp_path):
+    adapter, fake, editor, a1, _a2 = _make_adapter_rig(tmp_path)
+    in_wire = _rect_obj('in-wire', 200, 3500, 1200, 4200, net='NET_M_A', name='IN_WIRE')
+    snap_with_wire = fake.current.model_copy(update={'objects': {**fake.current.objects, 'in-wire': in_wire}})
+    fake.current = snap_with_wire
+    editor = Editor(
+        editor.w.model_copy(
+            update={
+                'baseline': snap_with_wire,
+                'local_data': editor.w.local_data.model_copy(
+                    update={
+                        'regions': {
+                            **editor.w.local_data.regions,
+                            a1: editor.w.local_data.regions[a1].model_copy(
+                                update={'object_uids': (*editor.w.local_data.regions[a1].object_uids, 'in-wire')}
+                            ),
+                        }
+                    }
+                ),
+            }
+        ),
+        editor.profile,
+    )
+    editor.scope_id = a1
+    editor.edit('in-wire', bbox=((200, 3500), (1600, 4400)), net_intent='NET_NEW')
+    editor.place('inst-M_A', (3200, 1200), 'R90')
+    editor.create(
+        Shape(kind='rect', lpp=('M2', 'drawing'), bbox=((3400, 3400), (4400, 4200)), net_intent='NET_M_A'),
+        uid='in-added',
+    )
+
+    # Corrupt historical op.before digests to verify Scheme B ignores stale edit history
+    stale_ops = tuple(
+        op.model_copy(update={'before': 'stale-historical-digest'}) if op.before else op
+        for op in editor.w.operations
+    )
+    stale_w = editor.w.model_copy(update={'operations': stale_ops})
+
+    # 1) Fast-path commit (Virtuoso unchanged) succeeds without OBJECT_CONFLICT
+    committed_fast = adapter.commit(stale_w, request_id='stale-fast-path')
+    assert committed_fast.state == 'clean'
+    assert fake.current.objects['in-wire'].shape.bbox == ((200, 3500), (1600, 4400))
+    assert fake.current.objects['inst-M_A'].placement == Placement(origin=(3200, 1200), orientation='R90')
+    assert 'in-added' in fake.current.objects
+
+    # 2) Reset Virtuoso to snap_with_wire + outside Human edit -> cooperative_pull and commit both succeed!
+    fake.current = snap_with_wire.model_copy(
+        update={
+            'objects': {
+                **snap_with_wire.objects,
+                'ext_edit': _rect_obj('ext_edit', 25000, 2000, 27500, 3000, net='EXT2', name='EXT_EDIT'),
+            },
+            'counter': '2',
+        }
+    )
+    pulled, _ = adapter.cooperative_pull(stale_w)
+    assert pulled.baseline.objects['ext_edit'].shape.bbox == ((25000, 2000), (27500, 3000))
+    assert any(op.before for op in pulled.operations)
+    assert all(op.before != 'stale-historical-digest' for op in pulled.operations if op.before)
+
+    # Restore fake.current to post-pull state & commit stale_w directly on cooperative rebase path too!
+    committed_coop = adapter.commit(stale_w, request_id='stale-coop-path')
+    assert committed_coop.state == 'clean'
+    assert committed_coop.baseline.objects['ext_edit'].shape.bbox == ((25000, 2000), (27500, 3000))
+    assert committed_coop.baseline.objects['in-wire'].shape.bbox == ((200, 3500), (1600, 4400))
+    assert committed_coop.baseline.objects['inst-M_A'].placement == Placement(origin=(3200, 1200), orientation='R90')
+    assert 'in-added' in committed_coop.baseline.objects

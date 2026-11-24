@@ -67,8 +67,8 @@ CLI 访问方式：`./python.sh api.py --client <name> inspect parasitics`（支
 - `workspace` 支持操作区与双向同步动作：
   - `status`：新增返回 `regions` 列表（每项含 `id`、`name`、`parent_id`、`pin_mode`、`bounds_um`）。
   - `create_region`（传入 `bounds_um`、可选 `name`/`pin_mode`/`parent_id`/`blocked_layers`/`note`）：创建操作区并自动向 Virtuoso 写入不可制造警示框；`dissolve_region`（传 `region_id`）：解散操作区并清理对应警示框；`sync_regions`：手动重绘 Virtuoso 中的全部警示边界。
-  - `pull`：读取 Virtuoso 区外人类改动并与本地未提交草稿/活跃 Agent 租约三路合并。
-  - `sync`：推送全工作区非占用区域的修改，或传入可选 `region_id` 仅推送指定已完成区域子树（若该区域或子区仍被占用返回 `WORK_SESSIONS_ACTIVE`）；其余兄弟区域草稿与租约继续保留。
+  - `pull`：读取 Virtuoso 区外人类改动并在不依赖历史摘要的前提下合入本地操作区最终快照与活跃 Agent 租约。
+  - `sync`：按操作区最终快照无历史覆盖推送全工作区非占用区域的修改，或传入可选 `region_id` 仅推送指定已完成区域子树（保留未改动 `oaRoute` 与 `inst` Layout XL 绑定，覆盖已删改/新增可写连线、标准过孔与保护环；若该区域或子区仍被占用返回 `WORK_SESSIONS_ACTIVE`）；其余兄弟区域草稿与租约继续保留。
   - 原始 `/call` 调用 `create_region`/`dissolve_region`/`pull`/`sync` 时须提供 `expected_document_id` 与 `expected_revision`；使用客户端 `api.py workspace ...` 会自动读取 `status` 填充。
 - `release_region(outcome="done", sync_to_virtuoso=true)`（CLI：`api.py --client <name> release --outcome done --sync-to-virtuoso`）可在验收通过并释放占用后立即将该操作区改动协同推送到 Virtuoso。
 - CLI 示例：

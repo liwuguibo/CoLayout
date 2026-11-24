@@ -5,7 +5,7 @@ import time
 from typing import TYPE_CHECKING
 from uuid import uuid4
 from .model import Workspace, Snapshot, Operation, LiteError, digest
-from .codec import decode, shape_payload
+from .codec import decode
 from .paths import ROOT
 from .transport import NativeTransport
 from .native_lane import serialized_adapter
@@ -478,25 +478,17 @@ class Adapter:
         self.save(result)
         return result, profile
 
-    def _commands(self, w, current):
-        out = []
-        for op in w.operations:
-            d = {"action": op.action, "uid": op.uid}
-            if op.action in ("update", "delete", "transform"):
-                d["before"] = current.objects[op.uid].native_row
-            if op.action in ("delete", "transform") and current.objects[op.uid].mpp:
-                d["mpp_before"] = current.objects[op.uid].mpp.native_definition
-            if op.shape:
-                d["shape"] = shape_payload(op.shape)
-            if op.placement:
-                d["placement"] = {
-                    "origin": list(map(str, op.placement.origin)),
-                    "orientation": op.placement.orientation,
-                }
-            if op.guard:
-                d["guard"] = op.guard
-            out.append(d)
-        return out
+    def _commands(self, w, current, *, profile=None):
+        from .cooperative_sync import build_snapshot_overwrite_commands, guard_specs_for_workspace
+        from .editor import projected
+
+        return build_snapshot_overwrite_commands(
+            projected(w, text_owners=current.text_owners),
+            current,
+            profile=profile,
+            guard_specs=guard_specs_for_workspace(w),
+            guard_previews=w.guard_previews,
+        )
 
     def _payload_hash(self, w):
         return payload_hash(w)
@@ -524,10 +516,12 @@ class Adapter:
         """
         from .cooperative_sync import (
             analyze_virtuoso_delta,
+            guard_specs_for_workspace,
             needs_native_prepare,
-            rebind_operations,
             rebase_workspace_onto_virtuoso,
+            remaining_local_operations,
             require_virtuoso_saved,
+            synthesize_operations_from_target,
             translate_native_unsaved_error,
         )
 
@@ -645,24 +639,62 @@ class Adapter:
                 )
             tx_hash = self._payload_hash(tx_w)
 
-        # Validate again at the adapter boundary: loading or constructing a
-        # Workspace directly must not bypass the local editing permissions.
-        from .editor import Editor
+        # Validate again at the adapter boundary from the final desired snapshot:
+        # stale intermediate Operation.before digests must not block a valid target
+        # state, while local permissions and guard previews remain strictly enforced.
+        from .editor import Editor, projected
 
+        local_specs = guard_specs_for_workspace(tx_w)
+        boundary_ops, boundary_previews = synthesize_operations_from_target(
+            tx_w.baseline,
+            projected(tx_w, text_owners=tx_w.baseline.text_owners),
+            guard_specs=local_specs,
+            guard_previews=tx_w.guard_previews,
+        )
         validation = Editor(
             Workspace(baseline=tx_w.baseline, profile_id=profile.id), profile
         )
         ordinary = [
-            op for op in tx_w.operations if op.action not in ("guard", "delete_guard")
+            op for op in boundary_ops if op.action not in ("guard", "delete_guard")
         ]
         validation.apply(ordinary)
-        for op in tx_w.operations:
+        for op in boundary_ops:
             if op.action == "delete_guard":
                 validation.delete_guard(op.uid)
             elif op.action == "guard":
-                preview = tx_w.guard_previews.get(op.uid)
+                preview = boundary_previews.get(op.uid)
                 if not preview or preview.get("command_digest") != digest(op.guard):
                     raise LiteError("GUARD_PREVIEW_REQUIRED")
+        ops_payload = self._commands(tx_w, current, profile=profile)
+        if not ops_payload:
+            verify(tx_w, current, profile=profile, require_saved=not current.dirty)
+            after = (
+                retain_display(w.baseline, current)
+                if not same_snapshot(w.baseline, current)
+                else current
+            )
+            rebound_retained, final_previews = remaining_local_operations(
+                full_rebased_w, tx_w, after, profile
+            )
+            result = full_rebased_w.model_copy(
+                update={
+                    "baseline": after,
+                    "circuit": merged_circuit,
+                    "layout_connectivity": self._rebind_connectivity(full_rebased_w, after),
+                    "operations": rebound_retained,
+                    "guard_previews": final_previews,
+                    "revision": w.revision + 1
+                    if rebound_retained != w.operations or not same_snapshot(w.baseline, after)
+                    else w.revision,
+                    "state": "editing" if rebound_retained else "clean",
+                    "last_result": {
+                        "status": "no_op",
+                        "remaining_operations": len(rebound_retained),
+                    },
+                }
+            )
+            self.save(result)
+            return result
         backup = "COLAYOUT_MVP_LITE_BACKUP_" + uuid4().hex[:12]
         request = {
             "version": "colayout-lite-1",
@@ -671,7 +703,7 @@ class Adapter:
             "counter": current.counter,
             "dependencies": current.dependencies,
             "backup": backup,
-            "operations": self._commands(tx_w, current),
+            "operations": ops_payload,
             "fail_after": fail_after,
         }
         request["writable_lpps"] = profile.writable_lpps
@@ -701,15 +733,11 @@ class Adapter:
             if receipt.status == "saved":
                 after = self._verify_saved_readback(tx_w, after, profile)
                 after = retain_display(w.baseline, after)
-                rebound_retained = (
-                    rebind_operations(retained_ops, full_rebased_w.baseline, after)
+                rebound_retained, final_previews = (
+                    remaining_local_operations(full_rebased_w, tx_w, after, profile)
                     if retained_ops
-                    else ()
+                    else ((), {})
                 )
-                retained_uids = {op.uid for op in rebound_retained}
-                final_previews = {
-                    k: v for k, v in full_rebased_w.guard_previews.items() if k in retained_uids
-                }
                 result = full_rebased_w.model_copy(
                     update={
                         "baseline": after,
@@ -835,21 +863,17 @@ class Adapter:
             matches = False
         if matches:
             actual = retain_display(w.baseline, actual)
-            commit_uids = {op.uid for op in tx_w.operations}
-            retained = tuple(op for op in w.operations if op.uid not in commit_uids)
-            if retained:
-                from .cooperative_sync import rebind_operations
+            from .cooperative_sync import remaining_local_operations
 
-                retained = rebind_operations(retained, w.baseline, actual)
-            retained_uids = {op.uid for op in retained}
+            retained, retained_previews = remaining_local_operations(
+                w, tx_w, actual, profile
+            )
             result = w.model_copy(
                 update={
                     "baseline": actual,
                     "layout_connectivity": self._rebind_connectivity(w, actual),
                     "operations": retained,
-                    "guard_previews": {
-                        k: v for k, v in w.guard_previews.items() if k in retained_uids
-                    },
+                    "guard_previews": retained_previews,
                     "state": "editing" if retained else "clean",
                     "revision": w.revision + 1,
                     "last_result": {
@@ -1030,6 +1054,7 @@ class Adapter:
                 "display": after.display,
                 "cell": after.cell,
                 "command_digest": digest(spec),
+                "guard": spec,
             },
         }
         editor.publish(

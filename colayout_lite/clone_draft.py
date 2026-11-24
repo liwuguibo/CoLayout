@@ -5,9 +5,14 @@ Names, multiplicity, every definition field and all other geometry stay strict.
 Original operation hashes and transaction payloads are never rewritten in place.
 """
 
-from .model import LiteError, digest
-from .sync_checks import canonical_object
+from .cooperative_sync import (
+    guard_specs_for_workspace,
+    overlay_local_snapshot,
+    synthesize_operations_from_target,
+)
 from .hierarchy import same_dependencies
+from .model import LiteError
+from .sync_checks import canonical_object
 
 
 def clone_object(obj):
@@ -47,19 +52,17 @@ def bind(source, private):
             metadata=metadata,
             dependencies_match=same_dependencies(old, new),
         )
-    operations = []
-    for op in source.operations:
-        if op.action in ('update', 'delete', 'transform'):
-            original = old.objects.get(op.uid)
-            copied = new.objects.get(op.uid)
-            if original is None or copied is None or op.before != digest(original.semantic()):
-                raise LiteError('OBJECT_CONFLICT', '草稿前提与原导入基准不同。', uid=op.uid)
-            op = op.model_copy(update={'before': digest(copied.semantic())})
-        operations.append(op)
+    desired = overlay_local_snapshot(source, new, None)
+    operations, previews = synthesize_operations_from_target(
+        new,
+        desired,
+        guard_specs=guard_specs_for_workspace(source),
+        guard_previews=source.guard_previews,
+    )
     return private.model_copy(
         update={
-            'operations': tuple(operations),
-            'guard_previews': source.guard_previews,
+            'operations': operations,
+            'guard_previews': previews,
             'local_data': source.local_data,
         }
     )
