@@ -11,7 +11,7 @@
 任务：<具体要求>
 ~~~
 
-还没有操作区 ID 时，先让它验证连接、查看工具，等你分配区域后再接入。软件维护与工艺配置留在初始化对话。
+还没有操作区 ID 时，可先让它通过 `workspace status`（含 `regions` 列表）核实连接与区域；若用户明确授权，也可通过 APP API 执行 `workspace create_region` / `dissolve_region`（同步更新 Virtuoso 警示边界）、`workspace pull` / `sync` 或 `release_region(outcome="done", sync_to_virtuoso=True)` 进行协同合并——但仍严禁直接访问 SSH 或 Virtuoso Bridge。软件维护与工艺配置留在初始化对话。
 
 生成的客户端自带 PROMPT.md、README.md、AGENTS.md 和 docs/API.md。连接、工具发现、区域接入和查询命令都在其中；每个并行 Agent 使用独立且稳定的 --client 名称。工艺必须已审核启用，工具的实际参数以运行中 APP 的发现结果为准。
 

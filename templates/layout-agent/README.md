@@ -11,9 +11,11 @@ Windows:
 ```powershell
 .\python.cmd service.py connect
 .\python.cmd api.py --client layout-1 tools
+.\python.cmd api.py --client layout-1 workspace status
 .\python.cmd api.py --client layout-1 claim "<user-provided-region-id>" --name "Layout agent"
 .\python.cmd api.py --client layout-1 inspect layout
 .\python.cmd api.py --client layout-1 inspect rules
+.\python.cmd api.py --client layout-1 inspect parasitics --net "<net-name>"
 ```
 
 Linux:
@@ -21,12 +23,16 @@ Linux:
 ```bash
 ./python.sh service.py connect
 ./python.sh api.py --client layout-1 tools
+./python.sh api.py --client layout-1 workspace status
 ./python.sh api.py --client layout-1 claim "<user-provided-region-id>" --name "Layout agent"
 ./python.sh api.py --client layout-1 inspect layout
 ./python.sh api.py --client layout-1 inspect rules
+./python.sh api.py --client layout-1 inspect parasitics --net "<net-name>"
 ```
 
-Confirm exact command options with `api.py --help` and `api.py claim --help`; detailed edit fields are in the current tools response and docs/api-schema.json.
+Cooperative Virtuoso sync helpers (strictly via the APP HTTP API, preserving disjoint drafts/leases): `./python.sh api.py --client layout-1 workspace pull` and `./python.sh api.py --client layout-1 workspace sync` (or `release --outcome done --sync-to-virtuoso`; substitute `.\python.cmd` on Windows).
+
+Confirm exact command options with `api.py --help`, `api.py workspace --help`, and `api.py claim --help`; detailed edit fields are in the current tools response and docs/api-schema.json.
 
 Each parallel agent uses a different --client name. Keep runtime/clients, pending requests and outputs when updating or reconnecting. If the APP has restarted, reconcile old unknown requests before resetting the old session; never replay edits automatically.
 

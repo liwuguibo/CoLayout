@@ -11,7 +11,7 @@ For first use, read Setup and preparation, then Using CoLayout. Continue to the 
 | [Setup and preparation](setup.md) | Prerequisites, installation, server connection, PDK sample and separate layout-agent folder |
 | [Copyable setup prompt](setup-prompt.md) | Tell a new agent its role, connection inputs, task order and handoff scope |
 | [Agent setup runbook](agent-setup.md) | Exact commands, readiness criteria, review states and restart/recovery decisions |
-| [Using CoLayout](usage.md) | Region collaboration, PINs, checks, save/recovery and shortcuts |
+| [Using CoLayout](usage.md) | Region collaboration, decoupled Virtuoso sync, metal pour, on-demand RC estimates, PINs, checks and shortcuts |
 | [Layout-agent prompt](layout-prompt.md) | Start the separate drawing conversation with a region ID and task, without server credentials |
 
 ## Understand and maintain the source
@@ -22,7 +22,7 @@ For first use, read Setup and preparation, then Using CoLayout. Continue to the 
 | [Architecture](architecture.md) | Diagram, module responsibilities, hierarchy, concurrency and correctness |
 | [Source implementation guide](internals.md) | Call chains, data/state models, worker adoption, recovery and existing test map |
 | [Development](development.md) | Environment, tests, troubleshooting and release validation |
-| [Agent API](api.md) | Tool boundaries, request identity, asynchronous jobs and contract maintenance |
+| [Agent API](api.md) | Tool boundaries, cooperative Virtuoso merge, on-demand RC inspection, request identity and async jobs |
 
 ## Contribute and manage dependencies
 

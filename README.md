@@ -12,7 +12,7 @@
 
 ## 项目简介
 
-CoLayout 是面向人和 Agent 协作的轻量化 Windows/Linux 版图工作区，与 Cadence Virtuoso 配合使用。人划分本地操作区，版图 Agent 通过本机 HTTP API 编辑被分配的区域；工作区、权限、撤销、检查和显式同步都由桌面 APP 统一管理。
+CoLayout 是面向人和 Agent 协作的轻量化 Windows/Linux 版图工作区，与 Cadence Virtuoso 配合使用。人可划分本地操作区并在 Virtuoso 中自动投影非制造警示边界（提醒区外人类编辑避让），版图 Agent 在操作区内通过本机 HTTP API 工作，人类同时可直接在 Virtuoso 完善 GUI 中编辑操作区外部版图；只要双方物理范围错开，即可随时双向合并与推送。工作区、权限、撤销、检查和显式同步由桌面 APP 统一管理。
 
 软件用于辅助版图工作，不代替完整 LVS 或工艺签核。Virtuoso、Calibre 和 PDK 由用户自行合法取得，本仓库不包含这些产品。
 
@@ -98,10 +98,11 @@ Linux 版本与 Windows 复用同一个 Qt 工作区、版图模型、Agent API 
 ## 软件的基本使用逻辑
 
 - 兄弟区、父子区可分别接入 Agent；同一区域独占编辑。
+- Virtuoso 与 CoLayout 支持解耦空间协同：划定、缩放或解散操作区时，自动向 Virtuoso 同步不可制造红框警示边界（`[CoLayout AI Region: ...] DO NOT EDIT INSIDE`）。人类可在 Virtuoso GUI 中直接编辑操作区外部版图，AI 在操作区内工作；只要物理位置错开，随时点击“读取”/“写入”或调用 Agent `workspace pull`/`sync`/`release_region(sync_to_virtuoso=true)` 即可立即合并，保留未提交草稿与运行中 Agent 租约。若 Virtuoso 编辑落入操作区（`VIRTUOSO_EDIT_IN_REGION`）或存在未保存修改（`VIRTUOSO_UNSAVED_CHANGES`），同步会明确报错拦截并保留双方已有工作。
 - 父层只管理直接子区外框和接口，不越层编辑子区内部。
 - 可以先用方位 PIN 完成主体，再收紧操作区、转固定 PIN、完成真实引出。
 - 普通叶 PCell 参与检查；真正原生层次保持黑盒，只开放公开 PIN 和明确设置的局部布线豁免。
-- 高频运行本地检查，在适当阶段运行服务器 DRC。完成验收要求当前全区两项检查均通过；本地检查只是受支持的子集，不是完整 LVS。
+- 支持画线后与按需局部 RC 寄生影响评估（`RC 寄生影响` 面板与共享 `inspect_region(kind="parasitics")` 接口，不持续占用后台计算，属早期参考 `signoff: false`）。高频运行本地检查，在适当阶段运行服务器 DRC。完成验收要求当前全区两项检查均通过；本地检查只是受支持的子集，不是完整 LVS。
 - 显式保存／导出用于交换文件，内部恢复备份和原生事务记录独立保留。
 
 ## 开发与许可

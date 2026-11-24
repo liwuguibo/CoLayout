@@ -47,7 +47,7 @@ Windows 的 Start-CoLayout.cmd 委托 tools/project.ps1，Linux 的 Start-CoLayo
 | API 请求超时 | 客户端 pending、原 request_id、HTTP/会话账本；不新建请求重发 |
 | 并行任务时 UI 卡死 | GUI 回调归属、锁顺序、范围结果采用和刷新调度 |
 | 检查过期 | 几何/范围/工艺指纹、覆盖范围和任务终态 |
-| 同步基线不符 | 修改前的原生源/依赖事实和持久事务日志 |
+| 同步基线不符 / 协同拦截 | `Snapshot.dirty`（`VIRTUOSO_UNSAVED_CHANGES`）、[cooperative_sync.py](../../colayout_lite/cooperative_sync.py) 越界诊断（`VIRTUOSO_EDIT_IN_REGION`）、原原生源/依赖变化和持久事务日志；确认警示框已通过 `ltClearRegionGuides` 剥离且 `colayoutRegionGuide` 未进入基线 |
 | 原生结果未知 | Adapter 恢复、回执与保存证据；不能清 pending |
 | 绘图或接触错误 | 实际 LPP、DBU、材质、过孔定义和公开 PIN 几何 |
 | 导入工艺后缺少能力 | 样例证据、金属栈、保护环/MIM 配置和审核结果 |

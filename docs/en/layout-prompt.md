@@ -11,7 +11,7 @@ Region ID: <ID>
 Task: <requirements>
 ~~~
 
-Without a region ID, verify connectivity and inspect tools first; wait for the user to assign a region before claiming it. Keep maintenance and process configuration in the setup conversation.
+Without a region ID, inspect connectivity, tools and `workspace status` (`regions`) first, and wait for the user to assign a region before claiming it; when explicitly asked by the user, `workspace create_region` / `dissolve_region` (which update Virtuoso warning frames), `workspace pull` / `sync` and `release_region(outcome="done", sync_to_virtuoso=True)` also work strictly through the APP API without direct Virtuoso or SSH access. Keep maintenance and process configuration in the setup conversation.
 
 The generated client includes PROMPT.md, README.md, AGENTS.md and docs/API.md with connection, discovery, claim and inspection commands. Each parallel agent uses a distinct stable --client name. The process must be reviewed and enabled; the live APP's discovery response defines actual arguments.
 

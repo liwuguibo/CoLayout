@@ -47,7 +47,7 @@ For the shipped layout client, run `tools/smoke_layout_client.py --out <new-fold
 | API request timed out | Client pending and same request_id; HTTP/session ledger; do not create a new request |
 | UI freezes with parallel jobs | GUI callback ownership, lock order, scoped worker adoption and refresh scheduling |
 | Stale check | Geometry/scope/process fingerprints, coverage and terminal task state |
-| Sync baseline mismatch | Actual native source/dependency facts and persisted journal before any mutation |
+| Sync baseline mismatch / cooperative block | `Snapshot.dirty` (`VIRTUOSO_UNSAVED_CHANGES`), spatial intrusion details from [cooperative_sync.py](../../colayout_lite/cooperative_sync.py) (`VIRTUOSO_EDIT_IN_REGION`), native source/dependency facts, persisted journal, and verifying `ltClearRegionGuides` / `colayoutRegionGuide` exclusion |
 | Native result unknown | Adapter recovery and receipt/save evidence; never clear pending |
 | Incorrect drawing/contact | Actual LPP, DBU, materials, via definition and public PIN geometry |
 | Missing capability after PDK import | Sample evidence, configured metal stack/guard/MIM data and review result |

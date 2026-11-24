@@ -90,7 +90,11 @@ AgentHTTPServer POST /call
 
 ## 5. 原生同步状态
 
-人端 [SyncController](../../colayout_lite/presentation/synchronization.py) 负责界面准备、备份和任务；[Adapter.commit / reconcile](../../colayout_lite/adapter.py) 负责原生正确性。
+人端 [SyncController](../../colayout_lite/presentation/synchronization.py) 负责界面准备、备份和任务；[Adapter.cooperative_pull / commit / reconcile](../../colayout_lite/adapter.py) 与 [cooperative_sync.py](../../colayout_lite/cooperative_sync.py) 负责原生协同合并与正确性。
+
+- **Virtuoso 警示边界引导**：[cooperative_sync.py](../../colayout_lite/cooperative_sync.py)（`region_guide_signature`、`build_region_guides`、`ascii_guide_label`）编码本地 `OperationRegion` 后调用 [cooperative.il](../../colayout_lite/skill/cooperative.il)（`ltSyncRegionGuides`、`ltClearRegionGuides`、`ltTagRegionGuide`）与 [lite.il](../../colayout_lite/skill/lite.il) 中的 `ltEnsureEditable` / `ltRedrawCellView` 绘制非制造警示图元（打标 `colayoutRegionGuide="true"`）。[read.il](../../colayout_lite/skill/read.il)（`ltIsRegionGuide`）及显示采集自动忽略这些图元，服务器 Calibre 副本在导出/运行前调用 `ltClearRegionGuides` 清理。
+- **区外协同拉取（`Adapter.cooperative_pull`）**：校验 Virtuoso 已保存（`require_virtuoso_saved` -> `VIRTUOSO_UNSAVED_CHANGES`）；若检测到 Virtuoso 新增/复制了缺持久化身份的图形（`needs_native_prepare`），先执行 `ltPrepare`；再由 `analyze_virtuoso_delta` 拦截落入操作区的变更（`VIRTUOSO_EDIT_IN_REGION`），最后经 `rebase_workspace_onto_virtuoso` 与 [WorkSessions.validate_cooperative_baseline](../../colayout_lite/work_sessions.py) 检查未受影响租约并通过 [WorkspaceController.install_cooperative](../../colayout_lite/presentation/workspace_controller.py) / [Editor.adopt_cooperative_baseline](../../colayout_lite/editor.py) 采用新基线、保留未提交 `operations`。
+- **增量协同提交（`Adapter.commit`）**：支持 `scope_region_ids`（单区域推送或 `release_region(sync_to_virtuoso=True)`）与 `exclude_region_ids`（默认跳过仍在 Agent 占用中的兄弟操作区）。当 Virtuoso 计数变化但未侵入操作区时，先完成三路变基、记录待提交日志，经 `ltEnsureEditable` + `ltTransaction` + `dbSave` + `ltRedrawCellView` 写入并核验读回，再于本地保留未参与本次推送的草稿与租约。
 
 | Workspace 状态 | 含义 |
 |---|---|
@@ -128,7 +132,7 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 
 [diagnostics.install](../../colayout_lite/diagnostics.py) 在 artifacts/lite/diagnostics 写 Python/Qt/fault 日志。[UiWatchdog](../../colayout_lite/ui_watchdog.py) 在 Qt 无响应时写 PID 对应的 ui-stall 线程栈。Agent 运行记录位于当前文档旁 agent-runs；原生日志遵循 connection.state_directory；DRC 任务位于 artifacts/drc/jobs。本机查看，公开前脱敏。
 
-[Editor.subscribe_commits](../../colayout_lite/editor.py) 在不改变原变化 UID 订阅的前提下提供不可变 before/after 事件，RC 增量以此为基准。`rc_model_digest` 独立于原生资格 `policy_key`，RC 审核和可选 xRC 证据分别管理。RC 不对黑盒做 full 提取，只追加公开 PIN 的 Physical 行。交互采用定频采样而不是每次事件取消，配合协作取消和顶点/配对预算。
+[Editor.subscribe_commits](../../colayout_lite/editor.py) 在不改变原变化 UID 订阅的前提下提供不可变 before/after 事件，RC 增量以此为基准。`rc_model_digest` 独立于原生资格 `policy_key`，RC 审核和可选 xRC 证据分别管理。RC 不对黑盒做 full 提取，只追加公开 PIN 的 Physical 行。交互采用定频采样而不是每次事件取消，配合协作取消和顶点/配对预算。M1 长距离分区电容评估内核位于 [parasitic_partition.py](../../colayout_lite/parasitic_nn/parasitic_partition.py)（`build_core_halo_partitions`、`evaluate_partitioned_capacitance`）与 [geometry_graph.py](../../colayout_lite/parasitic_nn/geometry_graph.py)（`_is_artificial_seam_edge` 拼缝抑制），按 Core-Halo 窗口、原子 `ViaCluster` 归属和零重复计数模型分解各分区 `Cg`/`Cc` 贡献占比。
 
 ## 8. 修改位置与已有回归对应关系
 
@@ -137,14 +141,14 @@ commit 核对可提交状态、引用、源/依赖和待提交几何；准备 Tr
 | 修改领域 | 已有测试／额外验证 |
 |---|---|
 | 几何、事务、撤销 | [test_kernel.py](../../tests_lite/test_kernel.py)、[test_actions.py](../../tests_lite/test_actions.py)、[test_path_outline07.py](../../tests_lite/test_path_outline07.py)、[test_path_backtracking.py](../../tests_lite/test_path_backtracking.py) |
-| 原生提交/恢复/保存 | [test_transactions.py](../../tests_lite/test_transactions.py)、[test_verified_save_barrier.py](../../tests_lite/test_verified_save_barrier.py)、[test_transport_boundary.py](../../tests_lite/test_transport_boundary.py)、[test_native_lane.py](../../tests_lite/test_native_lane.py) |
+| 原生提交/恢复/保存 | [test_transactions.py](../../tests_lite/test_transactions.py)、[test_verified_save_barrier.py](../../tests_lite/test_verified_save_barrier.py)、[test_transport_boundary.py](../../tests_lite/test_transport_boundary.py)、[test_native_lane.py](../../tests_lite/test_native_lane.py)、[test_cooperative_sync.py](../../tests_lite/test_cooperative_sync.py)（警示边界、`VIRTUOSO_EDIT_IN_REGION`、`VIRTUOSO_UNSAVED_CHANGES`、区外合并、保留活跃租约与单区推送） |
 | 操作区、权限、PIN | [test_regions.py](../../tests_lite/test_regions.py)、[test_work_sessions.py](../../tests_lite/test_work_sessions.py)、[test_human_edit.py](../../tests_lite/test_human_edit.py)、[test_copied_interface_contacts.py](../../tests_lite/test_copied_interface_contacts.py)、[test_edge_pin_migration.py](../../tests_lite/test_edge_pin_migration.py) |
 | 材质与物理检查 | [test_conduction_access.py](../../tests_lite/test_conduction_access.py)、[test_agent_connectivity.py](../../tests_lite/test_agent_connectivity.py)、[test_poly_contact_drc.py](../../tests_lite/test_poly_contact_drc.py)、[test_mim_via_check.py](../../tests_lite/test_mim_via_check.py) |
 | 内部金属提醒／性能 | [test_internal_metal_contacts.py](../../tests_lite/test_internal_metal_contacts.py)、[test_drc_performance_equivalence.py](../../tests_lite/test_drc_performance_equivalence.py) |
 | 保护环和原生豁免 | [test_mpp_sample_choppability.py](../../tests_lite/test_mpp_sample_choppability.py)、[test_guard_ports.py](../../tests_lite/test_guard_ports.py)、[test_native_routing_window_router.py](../../tests_lite/test_native_routing_window_router.py) |
 | 过孔组合动作／布线 | [test_auto_vias.py](../../tests_lite/test_auto_vias.py)、[test_via_landing_intent.py](../../tests_lite/test_via_landing_intent.py)、[test_layout_helpers.py](../../tests_lite/test_layout_helpers.py)、[test_routes.py](../../tests_lite/test_routes.py) |
 | 铺铜 | [test_pour.py](../../tests_lite/test_pour.py)：显式目标、障碍间距、正交输出、L/U 凹多边形、原子撤销、Agent 后台采用、矩形二级菜单及 Qt 拖框 |
-| 本地 RC 与画线草稿 | [test_parasitic_rc.py](../../tests_lite/test_parasitic_rc.py)、[test_parasitic_neural.py](../../tests_lite/test_parasitic_neural.py)、[test_parasitic_process.py](../../tests_lite/test_parasitic_process.py)、[test_parasitic_workspace.py](../../tests_lite/test_parasitic_workspace.py)、[test_parasitic_view.py](../../tests_lite/test_parasitic_view.py)、[test_wire_capture.py](../../tests_lite/test_wire_capture.py)、[test_parasitic_agent.py](../../tests_lite/test_parasitic_agent.py)：单位、去重、模型范围、E(2) 不变性与过孔桥接代理推理、黑盒 PIN、按需生命周期（无后台自动重算）、前后增量与共享 Agent `inspect_region(kind="parasitics")` 一致性校验 |
+| 本地 RC、分区与画线草稿 | [test_parasitic_rc.py](../../tests_lite/test_parasitic_rc.py)、[test_parasitic_neural.py](../../tests_lite/test_parasitic_neural.py)、[test_parasitic_partition.py](../../tests_lite/test_parasitic_partition.py)、[test_parasitic_process.py](../../tests_lite/test_parasitic_process.py)、[test_parasitic_workspace.py](../../tests_lite/test_parasitic_workspace.py)、[test_parasitic_view.py](../../tests_lite/test_parasitic_view.py)、[test_wire_capture.py](../../tests_lite/test_wire_capture.py)、[test_parasitic_agent.py](../../tests_lite/test_parasitic_agent.py)：单位、去重、模型范围、E(2) 不变性与过孔桥接代理推理、Core-Halo 长距离分区与拼缝抑制守恒、黑盒 PIN、按需生命周期（无后台自动重算）、前后增量与共享 Agent `inspect_region(kind="parasitics")` 一致性校验 |
 | 服务器任务／报告存储 | [test_drc_jobs.py](../../tests_lite/test_drc_jobs.py)、[test_drc_job_storage.py](../../tests_lite/test_drc_job_storage.py)、[test_drc_hierarchy_scope.py](../../tests_lite/test_drc_hierarchy_scope.py)；解析语法改变时补专项报告 fixture |
 | 初始化与客户端 | [test_bootstrap_portability.py](../../tests_lite/test_bootstrap_portability.py)、[test_release_boundary.py](../../tests_lite/test_release_boundary.py)、[test_client_parallel_replay.py](../../tests_lite/test_client_parallel_replay.py)、[test_customer_cli_uid.py](../../tests_lite/test_customer_cli_uid.py)、`tests_lite/test_linux_portability.py` |
 | 工艺采集／配置 | [test_process_setup.py](../../tests_lite/test_process_setup.py)、[test_onboarding.py](../../tests_lite/test_onboarding.py)；schema 改变时补审核/导出测试 |

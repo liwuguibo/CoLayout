@@ -12,7 +12,7 @@ Three Chinese-language videos recorded by the project author on Bilibili, in vie
 
 ## About CoLayout
 
-CoLayout is a lightweight Windows/Linux layout workspace for human–agent collaboration with Cadence Virtuoso. Humans organize a design into local operation regions; layout agents edit their assigned regions through a loopback HTTP API. The desktop application owns the workspace, permissions, undo history, checks and explicit native synchronization.
+CoLayout is a lightweight Windows/Linux layout workspace for human–agent collaboration with Cadence Virtuoso. Humans partition work into local operation regions with automatic non-fabricating warning frames projected into Virtuoso; layout agents edit inside their assigned regions through a loopback HTTP API while humans can concurrently edit outside those regions in the full Virtuoso GUI, with immediate bidirectional merging whenever edits remain spatially disjoint. The desktop application owns the workspace, permissions, undo history, checks and explicit native synchronization.
 
 CoLayout is a complementary layout tool, not a replacement for foundry sign-off or a full LVS extractor. Cadence Virtuoso, Calibre and PDKs are separate licensed products and are not included.
 
@@ -98,10 +98,11 @@ Provide the actual DRC deck, stream map and tool/environment paths. Do not subst
 ## Working model
 
 - Independent sibling and parent/child regions may have different agents. Same-region edits are exclusive.
+- Decoupled Virtuoso <-> CoLayout collaboration: creating, adjusting or dissolving an operation region automatically updates non-fabricating warning boundaries (`[CoLayout AI Region: ...] DO NOT EDIT INSIDE`) in Virtuoso. Humans may edit freely in the Virtuoso GUI outside operation regions while AI works inside CoLayout; whenever edits are spatially disjoint, either side can pull (`读取` / `workspace pull`) or push (`写入` / `workspace sync` / `release_region(sync_to_virtuoso=true)`) immediately without discarding pending drafts or terminating untouched Agent leases. Intruding Virtuoso edits (`VIRTUOSO_EDIT_IN_REGION`) and unsaved Virtuoso changes (`VIRTUOSO_UNSAVED_CHANGES`) abort safely with actionable coordinates while leaving both sides intact.
 - A parent manages direct child frames and interfaces; it cannot edit child interiors.
 - Directional PIN mode supports building the interior first. Tighten the region, switch to fixed PIN mode and complete physical exits when appropriate.
 - Ordinary leaf PCells participate in checks; true native hierarchy stays opaque except for public PINs and explicitly configured routing windows.
-- Run local checks frequently and server DRC at meaningful milestones. Completion requires current full-region evidence from both. Local checks remain a supported subset, not full LVS.
+- On-demand local RC parasitic evaluation (`RC 寄生影响` panel and shared `inspect_region(kind="parasitics")` API, with zero continuous background recomputation; `signoff: false`) complements local checks and server DRC. Run local checks frequently and server DRC at meaningful milestones. Completion requires current full-region evidence from both. Local checks remain a supported subset, not full LVS.
 - Explicit save/export creates portable files. Internal recovery and native transaction evidence remain separate.
 
 ## Development and licensing

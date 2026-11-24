@@ -27,7 +27,7 @@ Give the user the generated PROMPT.md for the new layout conversation. It only n
 
 ## Replacement and restart
 
-The live generator requires no active regions and can_load=true. Do not force-release someone else's region or kill the APP. If it reports active work, preserve the prepared package and wait until the user/work owner finishes.
+The live generator requires no active regions and can_load=true because rebinding a client package or archive root replaces/reloads workspace archive bindings. Do not force-release someone else's region or kill the APP. If it reports active work, preserve the prepared package and wait until the user/work owner finishes. (By contrast, during normal layout work, the existing client's `workspace pull` / `workspace sync` supports decoupled Virtuoso outside-region collaboration without re-running `tools/create_layout_agent.py`.)
 
 When archive_root changes, its value is read at APP startup. Save and close the idle APP normally, run tools/project.ps1 -Action start, then -Action publish. Verify status/archive_folder again. connected=true alone is insufficient when ready=false or restart_required=true.
 

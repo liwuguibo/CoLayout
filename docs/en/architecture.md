@@ -76,7 +76,7 @@ Local operation regions organize a flat native design without creating OA child 
 
 Native hierarchy comes from imported master/instance evidence. A true hierarchical instance stays opaque except for its public PINs and object-specific routing windows. A leaf PCell or mosaic is not automatically a black box: ordinary leaf devices still participate in DRC. Use hierarchy.is_hierarchical_instance; do not infer hierarchy from cell names, library names or whether the renderer is collapsed.
 
-Human physical edits are locked at an occupied construction level, except for the supported locator guidance actions. A region's own agent can change its frame, interfaces and mode. Parent changes to child pose/interfaces invalidate relevant child inputs. Human navigation does not grant edit rights.
+Within the local CoLayout workspace, human physical edits are locked at an occupied construction level, except for the supported locator guidance actions; meanwhile, humans may continue editing outside all operation-region warning frames directly in the Virtuoso GUI. A region's own agent can change its frame, interfaces and mode. Parent changes to child pose/interfaces invalidate relevant child inputs. Human navigation does not grant edit rights.
 
 ## PIN and connectivity semantics
 

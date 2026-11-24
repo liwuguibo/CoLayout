@@ -9,9 +9,24 @@ All coordinates for edit calls are workspace-absolute micrometres unless the too
 5. `check_region`: asynchronous local connectivity, supported geometric rules and advisory checks. Poll the same job ID.
 6. `server_drc_region`: asynchronous server DRC using an isolated native copy. It can start independently of local DRC; both must pass for completion.
 7. `capture_region`: scoped screenshots for review. These do not move the human camera.
-8. `release_region`: done requires valid complete-region evidence; handoff preserves intermediate work.
+8. `release_region`: `done` requires valid complete-region evidence (and optionally accepts `sync_to_virtuoso=true` / `api.py --client <name> release --outcome done --sync-to-virtuoso` to immediately push that region's subtree to Virtuoso); `handoff` preserves intermediate work.
 
-`route_region` is disabled by default and absent from live tools until a human enables Agent autorouting in the process UI. Disabled generate/recheck/apply calls fail with AGENT_AUTOROUTE_DISABLED; existing jobs still allow status/discard for cleanup. Agents cannot change this permission, including through process proposals. Human UI routing and all other edit helpers remain available. `inspect rules` reports `agent_autoroute_enabled`; readable routing layer/via data does not grant access. `reference_cases` manages references, and `workspace` handles explicit snapshots. `process_configuration` is for the separate setup role; ordinary layout agents do not change global process settings.
+`route_region` is disabled by default and absent from live tools until a human enables Agent autorouting in the process UI. Disabled generate/recheck/apply calls fail with AGENT_AUTOROUTE_DISABLED; existing jobs still allow status/discard for cleanup. Agents cannot change this permission, including through process proposals. Human UI routing and all other edit helpers remain available. `inspect rules` reports `agent_autoroute_enabled`; readable routing layer/via data does not grant access. `reference_cases` manages references, and `workspace` handles explicit snapshots, operation-region frame management (`create_region`/`dissolve_region`/`sync_regions`), and decoupled Virtuoso cooperative `pull`/`sync`. `process_configuration` is for the separate setup role; ordinary layout agents do not change global process settings.
+
+## Cooperative Virtuoso <-> CoLayout sync
+
+CoLayout supports decoupled spatial collaboration: while agents work inside local `OperationRegion`s, humans can continue editing outside those regions in the Virtuoso GUI. Whenever edits are spatially disjoint, either side can pull or push immediately without discarding local drafts or terminating untouched sibling Agent leases:
+
+- `api.py --client <name> workspace status`: returns current `revision`, `pending_operations`, `active_regions`, and a `regions` summary list (`id`, `name`, `parent_id`, `pin_mode`, `bounds_um`).
+- Region frame management (automatically projects non-fabricating `[CoLayout AI Region: ...] DO NOT EDIT INSIDE` warning frames into Virtuoso; use only when instructed):
+  - `api.py --client <name> workspace create_region --bounds XMIN YMIN XMAX YMAX [--name <name>] [--pin-mode fixed|directional] [--parent-id <id>] [--blocked-layers L1 L2 ...] [--note <text>]`
+  - `api.py --client <name> workspace dissolve_region --region-id <id>`
+  - `api.py --client <name> workspace sync_regions` (manually redraws all Virtuoso warning guides)
+- `api.py --client <name> workspace pull`: fetches saved outside-region Virtuoso edits and three-way merges them beneath pending CoLayout drafts while retaining untouched active leases.
+- `api.py --client <name> workspace sync [--region-id <id>]`: pushes all non-leased region edits (preserving still-busy sibling drafts/leases) or one completed `region_id` subtree onto Virtuoso's latest outside-region layout and redraws Virtuoso (`WORK_SESSIONS_ACTIVE` if the specified subtree still has active leases).
+- `api.py --client <name> release --outcome done --sync-to-virtuoso`: releases an accepted region and immediately pushes only that region's subtree to Virtuoso.
+- Note for raw HTTP `/call`: `create_region`, `dissolve_region`, `pull` and `sync` require `expected_document_id` and `expected_revision` (the `api.py workspace ...` CLI fetches them from `status` automatically).
+- **Guard errors (`VIRTUOSO_UNSAVED_CHANGES` & `VIRTUOSO_EDIT_IN_REGION`)**: if Virtuoso has unsaved changes (`modifiedButNotSaved=t`), ask the human to save (`F2`) or revert in Virtuoso and retry. If any Virtuoso edit overlaps or mutates an `OperationRegion`, `pull`/`sync` aborts safely without modifying either side and reports the offending object names, kinds, layers, `µm` coordinates and region names — report those details to the human so they can remove or move the intruding shapes out of the region in Virtuoso and save (`F2`), rather than touching Virtuoso or Bridge directly.
 
 Useful conventions:
 

@@ -12,14 +12,25 @@ Create an operation region around the objects to work on, inspect its interfaces
 
 ## A typical collaboration
 
-1. A human selects the source design and partitions local work.
-2. Each layout agent claims one assigned region. Sibling agents can proceed in parallel; a parent manages only direct child shells and interfaces.
+1. A human selects the source design and partitions local operation regions. CoLayout automatically renders non-fabricating warning boundaries (`[CoLayout AI Region: ...] DO NOT EDIT INSIDE`) in Virtuoso so human edits avoid AI-owned footprints.
+2. Each layout agent claims one assigned region. Sibling agents can proceed in parallel; a parent manages only direct child shells and interfaces. Meanwhile, humans can continue editing outside all operation regions in the full Virtuoso GUI.
 3. Build the interior, using directional PIN mode where appropriate. Complete device access, routing and sampled guard structures.
 4. Tighten the operation region with the property-panel action/API, select fixed PIN mode and complete real boundary exits.
 5. Run local checks frequently and inspect warnings. Run server DRC when appropriate, review active errors and finish only with valid whole-region evidence from both.
-6. The human explicitly writes the reviewed workspace to Virtuoso, then performs the required full-chip checks/LVS and final sign-off.
+6. Push verified work explicitly to Virtuoso (via the toolbar **写入** / `workspace sync` / `release_region(sync_to_virtuoso=True)`), without waiting for unrelated busy regions to finish, then perform full-chip checks/LVS and final sign-off.
 
-During agent occupancy, physical human edits are locked for that construction level. Navigation remains available; positioning guides are the limited collaboration exception. Do not terminate another client's session to bypass a lock.
+During agent occupancy, physical human edits inside CoLayout are locked for that construction level. Navigation remains available; positioning guides are the limited collaboration exception. Do not terminate another client's session to bypass a lock. When editing in the Virtuoso GUI, keep changes outside all operation-region warning frames and press `F2` to save before syncing.
+
+## Decoupled Virtuoso and CoLayout collaboration
+
+CoLayout decouples human editing in the Virtuoso GUI from AI/region editing inside local `OperationRegion`s. Whenever both sides' edits remain spatially disjoint, either side can pull or push immediately without losing drafts or blocking busy sibling regions:
+
+- **Automatic Virtuoso region warning guides**: Creating, resizing/tightening or dissolving an `OperationRegion` in the UI or through the Agent API (`workspace create_region` / `dissolve_region`) automatically updates non-fabricating warning guides in Virtuoso (`marker/warning` + `y0/drawing` boxes and `[CoLayout AI Region: <name/id>] DO NOT EDIT INSIDE` labels). These guides stay hidden from CoLayout snapshots and are stripped before server Calibre DRC. You can also trigger a manual redraw with `workspace sync_regions`.
+- **Pull outside-region Virtuoso edits anytime (`读取` / `workspace pull`)**: After saving (`F2`) outside-region edits in Virtuoso, click **读取** (`文件 → 读取服务器`) or call `workspace(action="pull")` to merge them into the local baseline. Unlike a full workspace replacement, cooperative pull **preserves pending local `operations` and untouched active Agent region leases**. (To discard local work and replace the entire workspace from Virtuoso, use `文件 → 从 Virtuoso 重新导入…`, which still requires idle sessions.)
+- **Push finished non-leased regions anytime (`写入` / `workspace sync` / `release_region`)**: Clicking **写入** (`文件 → 写入 Virtuoso`), calling `workspace(action="sync")` (optionally scoped to one finished `region_id`), or releasing with `release_region(outcome="done", sync_to_virtuoso=True)` rebases finished non-leased edits onto Virtuoso's latest outside-region layout, saves and redraws Virtuoso, and retains in-progress sibling drafts and active leases locally.
+- **Safety guards (`VIRTUOSO_UNSAVED_CHANGES` & `VIRTUOSO_EDIT_IN_REGION`)**:
+  - `VIRTUOSO_UNSAVED_CHANGES`: Cooperative pull/sync refuses while Virtuoso reports unsaved in-memory edits (`modifiedButNotSaved=t`). Save (`F2`) or revert in Virtuoso and retry.
+  - `VIRTUOSO_EDIT_IN_REGION`: If Virtuoso added, moved/modified or deleted any element overlapping an `OperationRegion`, both pull and sync abort without mutating either side and list the offending object names, kinds, layers, `µm` coordinates and region names. Delete or move those elements out of the region in Virtuoso, save (`F2`), and retry.
 
 ## Metal pour
 
@@ -66,7 +77,7 @@ Tightening reserves a small channel around contents and direct-child PIN extents
 - Server DRC uses a private native copy containing the current local edits. It applies the approved process report policy and retains the original records.
 - Passing both region checks is not full-chip DRC or LVS sign-off.
 
-Do not change device parameters to hide a mismatch or invent a waiver. If a native-source baseline check fails, stop and reconcile the actual source/dependency change before synchronizing.
+Do not change device parameters to hide a mismatch or invent a waiver. If a cooperative pull/sync aborts with `VIRTUOSO_EDIT_IN_REGION`, remove or move the intruding shapes out of the operation region in Virtuoso and save (`F2`) first; if a dependency mismatch or pending-transaction baseline conflict occurs, reconcile the actual native change before synchronizing.
 
 When reviewing local rules, source/note are evidence and descriptions, not executable regional exceptions or electrical conditions. Useful simplified checks should normally remain enabled even when omitted conditions can cause limited false positives; review the stated simplification and possible missed cases. Disable rules only when evidence is insufficient, the algorithm cannot perform the check, or repeated false positives on legal basic structures would make editing impractical. A note does not implement an omitted condition, and full server DRC remains necessary.
 
