@@ -74,6 +74,8 @@ class TaskController:
             job.deleteLater()
 
         job.finished.connect(finished)
+        if getattr(host, '_guide_sync_thread', None) and host._guide_sync_thread.isRunning():
+            host._guide_sync_thread.wait(5000)
         job.start()
 
     def communication_task(self, fn, done):

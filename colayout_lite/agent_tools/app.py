@@ -32,6 +32,7 @@ class AgentHub(QObject):
         self.process_configuration=ProcessConfiguration(window.process_store,
             connection=lambda:window.connection_config,changed=self.process_configuration_changed.emit)
         self.process_configuration_changed.connect(self.refresh_process_notification,Qt.ConnectionType.QueuedConnection)
+        from ..cooperative_sync import region_guide_signature
         self.workspace_files=WorkspaceFiles(lambda:window.editor,
             lambda:getattr(window,'project_path',parent/'workspace.colayout.json'),
             getattr(window,'open_prepared_document',window.open_document),
@@ -41,7 +42,13 @@ class AgentHub(QObject):
             save_busy=lambda:window.busy,
             path_warning=lambda:getattr(window,'document_path_warning',None),
             storage=getattr(window,'storage',None),
-            import_files=lambda:(getattr(window,'document_path',None),))
+            import_files=lambda:(getattr(window,'document_path',None),),
+            native=getattr(window,'native',None),
+            remote_enabled=lambda:getattr(window,'remote_enabled',True),
+            install_cooperative=window.workspace_controller.install_cooperative,
+            save_local=window.save_local,
+            on_cooperative_baseline=lambda:self.runtime.ownership.on_cooperative_baseline(),
+            on_guides_synced=lambda w:setattr(window,'_last_guide_signature',region_guide_signature(w)))
         self.runtime = AgentSession(
             lambda: window.editor,
             lambda: config.load(window.editor.profile) if window.editor else None,

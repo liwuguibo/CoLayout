@@ -37,6 +37,8 @@ class Window(QMainWindow):
         self.process_controller=ProcessController(self,root=lambda:ROOT)
         self.workspace_controller=WorkspaceController(self,root=lambda:ROOT)
         self._editor_unsubscribe=None;self._work_unsubscribe=None;self._workspace_overlay_items=[];self._local_pin_items=[];self.document_path=None
+        self._last_guide_signature=None;self._guide_sync_thread=None
+        self._guide_sync_timer=QTimer(self);self._guide_sync_timer.setSingleShot(True);self._guide_sync_timer.timeout.connect(self._flush_guide_sync)
         self.workspace_changed.connect(self._on_workspace_changed)
         from .fonts import ui_font
         self.setFont(ui_font(9))
@@ -284,7 +286,7 @@ class Window(QMainWindow):
         self.recover_button.setEnabled(not self.busy and bool(self.editor and self.editor.w.state in ('submitting','indeterminate')))
         self.fork_button.setEnabled(not self.busy and bool(self.editor and self.editor.w.operations and self.editor.w.state not in ('submitting','indeterminate')))
         if self.editor and self.editor.work_sessions.snapshots():
-            for button in (self.pull_button,self.sync_button,self.recover_button,self.fork_button,self.process_button,self.samples_button,self.process_choice):button.setEnabled(False)
+            for button in (self.recover_button,self.fork_button,self.process_button,self.samples_button,self.process_choice):button.setEnabled(False)
         self.diagnostics.set_discard_enabled(not self.busy and bool(self.editor) and self.editor.w.state not in ('submitting','indeterminate','conflict') and not self.editor.work_sessions.snapshots())
         if hasattr(self,'selection_ui'):self.selection_ui.selection_changed()
         self.view_state_changed.emit()
@@ -317,11 +319,59 @@ class Window(QMainWindow):
 
     def _on_workspace_changed(self,event):
         editor,changed=event
-        if editor is not self.editor:return
+        if editor is not self.editor or getattr(self,'_suppress_workspace_notify',False):return
         try:
             self.local_refresh(changed)
             self.save_local()
+            self.schedule_guide_sync()
         except Exception as exc:self.error((str(exc),traceback.format_exc()))
+
+    def can_auto_sync_guides(self):
+        if not getattr(self,'remote_enabled',True) or not self.editor:return False
+        w=self.editor.w
+        if w.validation_only or not w.baseline.library or not w.baseline.cell:return False
+        if self.adapter is not None:return hasattr(self.adapter,'sync_region_guides')
+        from .transport import load_connection
+        try:
+            _,cfg,_=load_connection(self.connection_config,require_environment=True)
+        except Exception:return False
+        root=cfg.get('allowed_remote_root','').rstrip('/')+'/'
+        return bool(w.baseline.library_path and w.baseline.library_path.startswith(root))
+
+    def schedule_guide_sync(self):
+        if not self.editor or not self.can_auto_sync_guides():return
+        from .cooperative_sync import region_guide_signature
+        sig=region_guide_signature(self.editor.w)
+        if sig!=getattr(self,'_last_guide_signature',None):
+            self._guide_sync_timer.start(80)
+
+    def _flush_guide_sync(self):
+        if not self.editor or not self.can_auto_sync_guides():return
+        if self.busy or (self._guide_sync_thread and self._guide_sync_thread.isRunning()):
+            self._guide_sync_timer.start(250);return
+        from .cooperative_sync import region_guide_signature
+        snapshot_w=self.editor.w
+        sig=region_guide_signature(snapshot_w)
+        if sig==getattr(self,'_last_guide_signature',None):return
+        from .presentation.tasks import Job
+        adapter=self.adapter
+        connection_config=self.connection_config
+        def run_sync():
+            target=adapter if adapter is not None else Adapter(NativeTransport(connection_config))
+            return target.sync_region_guides(snapshot_w)
+        job=Job(run_sync,self)
+        self._guide_sync_thread=job
+        def synced(_):
+            self._last_guide_signature=sig
+            if self.editor and region_guide_signature(self.editor.w)!=sig:
+                self._guide_sync_timer.start(80)
+        def failed(err):
+            # Keep pending signature so later manual/cooperative sync retries cleanly.
+            self.activity.record('Virtuoso 操作区边界引导自动更新失败',str(err[0]) if isinstance(err,tuple) else str(err))
+        job.done.connect(synced)
+        job.failed.connect(failed)
+        job.finished.connect(lambda:(setattr(self,'_guide_sync_thread',None) if self._guide_sync_thread is job else None,job.deleteLater()))
+        job.start()
 
     def clear_workspace_overlay(self):
         from .workspace_overlay import clear
@@ -546,6 +596,9 @@ class Window(QMainWindow):
             self.status.setText('请先关闭工艺配置窗口。');event.ignore();return
         if self.busy or (self.job and self.job.isRunning()):self.status.setText('操作尚未结束，请等待完成后关闭。');event.ignore();return
         if hasattr(self,'agent_hub'):self.agent_hub.close()
+        if hasattr(self,'_guide_sync_timer'):self._guide_sync_timer.stop()
+        if getattr(self,'_guide_sync_thread',None) and self._guide_sync_thread.isRunning():
+            self._guide_sync_thread.wait(3000)
         if hasattr(self,'routing_workbench'):self.routing_workbench.shutdown()
         elif hasattr(self,'routing_panel'):self.routing_panel.shutdown()
         if hasattr(self,'guard_panel'):self.guard_panel.cancel_draw()

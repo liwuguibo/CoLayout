@@ -25,7 +25,7 @@ APP 在 127.0.0.1 提供带身份验证的 HTTP 服务，将当前 URL/token 发
 
 | 工具 | 用途 |
 |---|---|
-| workspace | 状态查询，以及允许目录内的显式存档保存/加载 |
+| workspace | 状态查询、存档保存/加载、操作区边界管理与 Virtuoso 双向空间协同合并 |
 | reference_cases | 只读查询人提供的参考案例 |
 | process_configuration | 初始化角色的需求查询、提案提交/查询和配置导出；无 API 批准动作 |
 | claim_region | 独占一个操作层 |
@@ -59,6 +59,15 @@ allow_45 可选，默认 false。默认模式下，非正交障碍使用保守�
 
 `inspect_region(kind="rules")` 同时报告 `parasitics` 元数据（包含 `configured`、`mode`、`rc_model_digest`）。
 CLI 访问方式：`./python.sh api.py --client <name> inspect parasitics`（支持 `--net CLK_P`、`--uids U1 U2` 或重复 `--uid`、`--radius-um 12`、`--bounds ...`、`--markup-id ...`）。
+
+### Virtuoso 与 CoLayout 空间协同（操作区警示边界与即时合并）
+
+人类可在 Virtuoso GUI 中直接编辑操作区外部版图，AI/CoLayout 则专注于划定的 `OperationRegion` 内部。只要两者物理范围错开，任一方完成后均可立即同步，互不阻塞（包括存在进行中草稿与运行中 Agent 租约时）：
+
+- `workspace` 支持操作区与双向同步动作：`create_region`（传入 `bounds_um`、可选 `name`/`pin_mode`/`parent_id`/`blocked_layers`/`note` 创建操作区并向 Virtuoso 写入不可制造警示框）、`dissolve_region`（解散操作区并清理对应警示框）、`sync_regions`（手动重绘 Virtuoso 中的全部警示边界）、`pull`（读取 Virtuoso 区外人类改动并与本地未提交草稿/活跃 Agent 租约三路合并）、`sync`（推送全工作区或指定已完成 `region_id` 的本地修改回 Virtuoso）。
+- `release_region(outcome="done", sync_to_virtuoso=true)` 可在验收通过并释放占用后立即将该操作区改动协同推送到 Virtuoso。
+- **操作区越界保护（`VIRTUOSO_EDIT_IN_REGION`）**：无论执行 `pull` 还是 `sync`，只要检测到 Virtuoso 中存在新增、移动/修改或删除且与任一操作区物理重叠的元素，同步立即中止，并在错误信息中列出具体越界元素的名称、类型、图层、微米坐标与所属操作区，提示人类在 Virtuoso 中删除或移出后再重试，双方既有工作均完整保留。
+- **未保存保护（`VIRTUOSO_UNSAVED_CHANGES`）**：若 Virtuoso 当前 cellview 有尚未按 `F2` 保存的内存修改，会明确报错拦截，避免静默覆盖。
 
 ## 身份、版本和任务
 

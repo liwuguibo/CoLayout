@@ -115,7 +115,10 @@ class TransactionJournal:
 
     def check(self, expected_hash: str) -> dict | None:
         record = self.read()
-        if record is not None and record["hash"] != expected_hash:
+        if record is not None and expected_hash not in (
+            record["hash"],
+            record.get("source_hash"),
+        ):
             raise LiteError("REQUEST_ID_REUSED")
         # A crash may leave the snapshot before the journal is published.
         # Validate it as well, and never overwrite an incompatible snapshot.
@@ -128,18 +131,30 @@ class TransactionJournal:
                 raise LiteError(
                     "INVALID_TRANSACTION_SNAPSHOT", str(self.workspace_path)
                 ) from exc
-            if payload_hash(original) != expected_hash:
+            original_hash = payload_hash(original)
+            accepted_hashes = {expected_hash}
+            if record is not None:
+                accepted_hashes.add(record["hash"])
+            if original_hash not in accepted_hashes:
                 raise LiteError("REQUEST_ID_REUSED")
         return record
 
-    def prepare(self, workspace: Workspace, expected_hash: str, backup: str) -> dict:
-        self.check(expected_hash)
+    def prepare(
+        self,
+        workspace: Workspace,
+        expected_hash: str,
+        backup: str,
+        *,
+        source_hash: str | None = None,
+    ) -> dict:
+        self.check(source_hash or expected_hash)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.workspace_path.exists():
             workspace.save(self.workspace_path)
         record = {
             "request_id": self.request_id,
             "hash": expected_hash,
+            "source_hash": source_hash or expected_hash,
             "status": "prepared",
             "workspace_path": str(self.workspace_path.resolve()),
             "workspace_id": workspace.id,

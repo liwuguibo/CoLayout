@@ -36,7 +36,7 @@ procedure(lbRVisit(obj tr owner internal via occurrence depth)
   let((kind key childTr geom mag orient)
     kind=obj~>objType
     key=strcat(occurrence "/" lbId(obj))
-    unless(lbRSeen[key]
+    unless((or lbRSeen[key] ltIsRegionGuide(obj))
       lbRSeen[key]=t
       lbRCount=lbRCount+1
       when(lbRCount>100000 error("Display primitive budget exceeded"))

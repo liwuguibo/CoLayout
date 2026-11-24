@@ -145,10 +145,14 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     tools=sub.add_parser('tools',help='发现工具及具体编辑动作的参数、单位和状态语义')
     tools.add_argument('--tool');tools.add_argument('--action',dest='tool_action')
-    workspace=sub.add_parser('workspace',help='保存当前 APP 工作区或从文件加载；加载前需释放所有区域')
-    workspace.add_argument('operation',choices=['status','list','save','load'])
+    workspace=sub.add_parser('workspace',help='工作区存档、操作区边界管理与 Virtuoso 双向协同合并')
+    workspace.add_argument('operation',choices=['status','list','save','load','create_region','dissolve_region','sync_regions','pull','sync'])
     workspace.add_argument('--name');workspace.add_argument('--path')
     workspace.add_argument('--offset',type=int,default=0);workspace.add_argument('--limit',type=int,default=50)
+    workspace.add_argument('--bounds',type=float,nargs=4,metavar=('XMIN','YMIN','XMAX','YMAX'))
+    workspace.add_argument('--region-id');workspace.add_argument('--parent-id')
+    workspace.add_argument('--note');workspace.add_argument('--pin-mode',choices=['fixed','directional'])
+    workspace.add_argument('--blocked-layers',nargs='*')
     claim = sub.add_parser('claim'); claim.add_argument('region_id'); claim.add_argument('--name', required=True)
     inspect = sub.add_parser('inspect'); inspect.add_argument('kind', choices=['layout', 'net', 'rules', 'reference', 'terminals', 'parasitics'])
     select=inspect.add_mutually_exclusive_group()
@@ -183,6 +187,7 @@ def main():
     wait.add_argument('job_id');wait.add_argument('--seconds',type=float,default=30)
     release = sub.add_parser('release'); release.add_argument('--outcome', choices=['done', 'cancelled', 'handoff'], default='cancelled')
     release.add_argument('--note',default='',help='阶段交接说明；不会替代完整验收')
+    release.add_argument('--sync-to-virtuoso',action='store_true',help='outcome=done 释放后立即协同推送本区改动到 Virtuoso')
     sub.add_parser('retry'); sub.add_parser('reset-after-restart')
     args = parser.parse_args()
     select_client(args.client)
@@ -201,11 +206,13 @@ def main():
         if args.action == 'tools': response = call('tools',{k:v for k,v in {'tool':args.tool,'action':args.tool_action}.items() if v})
         elif args.action == 'workspace':
             options={'action':args.operation}
-            if args.operation in ('save','load'):
+            if args.operation in ('save','load','create_region','dissolve_region','pull','sync'):
                 status=call('workspace',{'action':'status'})['result']
                 options.update(expected_document_id=status['document_id'],expected_revision=status['revision'])
-            if args.name is not None:options['name']=args.name
-            if args.path is not None:options['path']=args.path
+            for key,val in (('name',args.name),('path',args.path),('bounds_um',args.bounds),
+                            ('region_id',args.region_id),('parent_id',args.parent_id),
+                            ('note',args.note),('pin_mode',args.pin_mode),('blocked_layers',args.blocked_layers)):
+                if val is not None:options[key]=val
             if args.operation=='list':options.update(offset=args.offset,limit=args.limit)
             response=call('workspace',options)
         elif args.action == 'claim': response = call('claim_region', {'region_id': args.region_id, 'agent_name': args.name})
@@ -234,7 +241,7 @@ def main():
             response=call('inspect_region',options)
         elif args.action == 'call': response = call(args.tool, json.loads(args.args.read_text(encoding='utf-8-sig')),wait_seconds=args.wait_seconds)
         elif args.action == 'wait': response = call(args.tool,{'mode' if args.tool=='edit_region' else 'action':'status','job_id':args.job_id},wait_seconds=args.seconds)
-        elif args.action == 'release': response = call('release_region', {'outcome': args.outcome,**({'note':args.note} if args.note else {})})
+        elif args.action == 'release': response = call('release_region', {'outcome': args.outcome,**({'note':args.note} if args.note else {}),**({'sync_to_virtuoso':True} if args.sync_to_virtuoso else {})})
         elif args.action == 'retry': response = call(retry=True)
         else:
             options={'style':args.style,'pin_names':not args.hide_pin_names,'instance_names':not args.hide_instance_names,

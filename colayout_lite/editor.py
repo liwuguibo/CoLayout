@@ -160,12 +160,14 @@ class Editor:
         self._commit_listeners.append(callback)
         return lambda: self._commit_listeners.remove(callback) if callback in self._commit_listeners else None
 
-    def _notify(self, before):
+    def _notify(self, before, *, extra_changed=()):
         if self.work_sessions.defer_workspace_notification(before):
             return
         old = {op.uid: op for op in before.operations}
         new = {op.uid: op for op in self.w.operations}
         changed = {uid for uid in old.keys() | new.keys() if old.get(uid) != new.get(uid)}
+        if extra_changed:
+            changed.update(extra_changed)
         for callback in tuple(self._listeners):
             try:
                 callback(changed)
@@ -275,6 +277,34 @@ class Editor:
         if self._undo:self._undo[-1]=replace(self._undo[-1],after=self._workspace)
         self.work_sessions.moved(before, matrices)
         self._notify(before)
+
+    def adopt_cooperative_baseline(self, workspace, profile):
+        """Adopt a merged Virtuoso baseline while preserving untouched active regions."""
+        if workspace.baseline.technology_fingerprint != profile.native_fingerprint:
+            raise LiteError('TECHNOLOGY_MISMATCH')
+        before = self._workspace
+        self.work_sessions.validate_cooperative_baseline(before, workspace, profile)
+        changed = {
+            uid
+            for uid in before.baseline.objects.keys() | workspace.baseline.objects.keys()
+            if uid not in before.baseline.objects
+            or uid not in workspace.baseline.objects
+            or before.baseline.objects[uid].semantic() != workspace.baseline.objects[uid].semantic()
+        }
+        for op in before.operations:
+            changed.add(op.uid)
+        for op in workspace.operations:
+            changed.add(op.uid)
+        self.profile = profile
+        self._undo = []
+        self._redo = []
+        self._workspace = workspace.model_copy(
+            update={
+                'revision': before.revision + 1 if workspace.revision <= before.revision else workspace.revision,
+            }
+        )
+        self._notify(before, extra_changed=changed)
+        return self._workspace
 
     def check_revision(self, revision=None):
         if self.w.state in ('submitting', 'indeterminate', 'conflict'):

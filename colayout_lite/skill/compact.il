@@ -29,7 +29,7 @@ procedure(ltCNode(cv depth expand)
       ltSeen[key]=t start=cv~>modifiedCounter scale=cv~>DBUPerUU count=ltCChildren(cv)
       unless(cv~>userUnits=="micron" error("UNSUPPORTED_USER_UNITS %L/%L/%L %L" cv~>libName cv~>cellName cv~>viewName cv~>userUnits))
       collapsed=depth>0 && count>0 && !expand
-      when(!collapsed && lbRCount+length(cv~>shapes)>100000 error("Display primitive budget exceeded"))
+      when(!collapsed && lbRCount+length(setof(s cv~>shapes !ltIsRegionGuide(s)))>100000 error("Display primitive budget exceeded"))
       terms=foreach(mapcar tr cv~>terminals
         list(tr~>name tr~>direction tr~>net~>name
           foreach(mapcar pin tr~>pins foreach(mapcar fig pin~>figs lbObject(fig scale)))))
@@ -71,7 +71,7 @@ procedure(ltCNode(cv depth expand)
 procedure(ltCompactRead(lib cell)
   let((cv root snapshot tech ltSeen ltNodes ltCSeen ltCDeps ltCProtected lbRScale lbRTech lbRStyles lbRSeen lbRFigures lbRUnsupported lbRCount styles)
     cv=lbView(lib cell)
-    when(length(cv~>shapes)>100000 error("Display primitive budget exceeded"))
+    when(length(setof(s cv~>shapes !ltIsRegionGuide(s)))>100000 error("Display primitive budget exceeded"))
     snapshot=lbExportCV(cv)
     ltCSeen=makeTable('ltCSeen nil) ltCSeen[cv]=t
     ltCDeps=list(list(lbId(cv) cv~>libName cv~>cellName cv~>viewName sprintf(nil "%L" cv~>modifiedCounter)))

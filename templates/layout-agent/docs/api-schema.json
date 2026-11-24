@@ -133,7 +133,7 @@
   },
   {
     "name": "workspace",
-    "description": "整工作区文件：status/list 无需接入；save 保存独立存档而不切换当前文件；load 从已允许目录读取 .colayout.json，先备份当前文档，再打开工作副本。加载要求所有区域空闲、后台任务结束且没有未决原生事务。不会自动同步 Virtuoso。",
+    "description": "整工作区文件、操作区边界与 Virtuoso 协同：status/list 无需接入；save/load 读写独立存档；create_region/dissolve_region/sync_regions 在 CoLayout 中管理操作区并向 Virtuoso 写入不可制造红框警示边界；pull 拉取 Virtuoso 区外人类改动并与本地草稿/运行中任务合并；sync 将全部或指定已完成 region_id 的改动协同推送回 Virtuoso（若人类改动落入操作区则返回 VIRTUOSO_EDIT_IN_REGION）。",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -143,7 +143,12 @@
             "status",
             "save",
             "list",
-            "load"
+            "load",
+            "create_region",
+            "dissolve_region",
+            "sync_regions",
+            "pull",
+            "sync"
           ],
           "title": "Action",
           "type": "string"
@@ -210,6 +215,107 @@
           "minimum": 1,
           "title": "Limit",
           "type": "integer"
+        },
+        "bounds_um": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bounds Um"
+        },
+        "region_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region Id"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "pin_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "fixed",
+                "directional"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pin Mode"
+        },
+        "blocked_layers": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocked Layers"
         }
       },
       "title": "WorkspaceFile",
@@ -3795,7 +3901,7 @@
   },
   {
     "name": "release_region",
-    "description": "释放本层占用；done 需当前全区本地检查和服务器 DRC 均 passed=true；本地实际错误、连通问题和检查失败仍阻断完成。没有顺序门禁，两类证据缺一不可。handoff 保留修改并交还，不代表验收通过，可附 note。区域完成不代表整芯片或 LVS 签核。",
+    "description": "释放本层占用；done 需当前全区本地检查和服务器 DRC 均 passed=true；本地实际错误、连通问题和检查失败仍阻断完成。支持 sync_to_virtuoso=true 在验收释放后立即协同推送本区改动到 Virtuoso。没有顺序门禁，两类证据缺一不可。handoff 保留修改并交还，不代表验收通过，可附 note。区域完成不代表整芯片或 LVS 签核。",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -3820,6 +3926,12 @@
           "maxLength": 20000,
           "title": "Note",
           "type": "string"
+        },
+        "sync_to_virtuoso": {
+          "default": false,
+          "description": "仅 outcome=done 时可用：释放后立即将该操作区改动协同推送到 Virtuoso（不覆盖区外人类改动；若人类改动落入操作区则报错拦截）。",
+          "title": "Sync To Virtuoso",
+          "type": "boolean"
         }
       },
       "required": [

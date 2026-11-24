@@ -30,6 +30,7 @@ NATIVE_SCRIPTS = (
     "circuit.il",
     "process_read.il",
     "temporary.il",
+    "cooperative.il",
 )
 
 

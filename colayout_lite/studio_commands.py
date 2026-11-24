@@ -17,7 +17,7 @@ class StudioCommands(QObject):
                 ('native','在 Virtuoso 中打开',window.native_button,'open'),('recover','核对未完成同步',window.recover_button,'check'),
                 ('fork','保留草稿另建副本',window.fork_button,'copy'),('circuit','原理图参考',window.circuit_button,'circuit'),
                 ('process','工艺库设置',window.process_button,'settings')]:
-            self.add(key,text,button.click,glyph,enabled=button.isEnabled,idle=key in ('sync','refresh','recover','fork','process'))
+            self.add(key,text,button.click,glyph,enabled=button.isEnabled,idle=key in ('recover','fork','process'))
         self.actions['refresh'].setIconText('读取')
         self.actions['sync'].setIconText('写入')
         self.add('fit','适合窗口',window.fit,'fit')
@@ -77,9 +77,9 @@ class StudioCommands(QObject):
             remote_ok=getattr(w,'remote_enabled',True) or key not in ('sync','refresh','import','native','recover','fork','region_drc_remote','guard')
             action.setEnabled(bool(e and not w.busy and remote_ok and (not idle or not active) and enabled()))
             hint='请先结束操作区内的 Agent 任务。' if idle and active else action.text()
-            if key in ('sync','refresh') and not active:
-                hint=('将当前本地修改写入 Virtuoso，并读回核对。' if key=='sync' else
-                      '从 Virtuoso 读取最新数据，保留本地层次；有待同步修改时不可读取覆盖。')
+            if key in ('sync','refresh'):
+                hint=('将已完成的非占用操作区修改协同推送到 Virtuoso（不覆盖区外人类编辑）；若人类编辑落入操作区则报错拦截。' if key=='sync' else
+                      '从 Virtuoso 读取区外最新改动并合并，同时保留操作区本地草稿与运行中任务；若人类编辑落入操作区则报错拦截。')
             if e and key in ('region','markup','keepout','rectangle','pour','guard'):
                 if e.w.state in ('submitting','indeterminate','conflict'):
                     hint={

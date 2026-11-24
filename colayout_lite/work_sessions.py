@@ -244,6 +244,85 @@ class WorkSessions:
             if getattr(before, field) != getattr(after, field):
                 self.require_idle()
 
+    def validate_cooperative_baseline(self, before, after, profile):
+        """Allow baseline/sibling-region updates only when active session subtrees are untouched."""
+        if not self._sessions:
+            return
+        self._on_thread()
+        if self._actor is not None:
+            raise LiteError('WORK_SESSION_REENTRANT')
+        from .editor import projected
+        from .regions.query import owner_map, descendants
+        from .regions.models import overlaps
+        from .sync_checks import canonical_object
+        from .cooperative_sync import operation_scope_id
+
+        old, new = projected(before), projected(after)
+        owners, new_owners = owner_map(before), owner_map(after)
+        old_op_map = {op.uid: op for op in before.operations}
+        new_op_map = {op.uid: op for op in after.operations}
+
+        for session in self._sessions.values():
+            rid_root = session.region_id
+            if rid_root not in before.local_data.regions or rid_root not in after.local_data.regions:
+                raise LiteError('WORK_SESSIONS_ACTIVE', f'操作区 {rid_root} 已不存在，请先结束任务。')
+            old_subtree = descendants(before, rid_root)
+            new_subtree = descendants(after, rid_root)
+            if old_subtree != new_subtree:
+                raise LiteError('WORK_SESSIONS_ACTIVE', f'操作区 {rid_root}（{session.owner}）的子层次发生变化。')
+            for rid in old_subtree:
+                r_old = before.local_data.regions[rid]
+                r_new = after.local_data.regions[rid]
+                if r_old.model_copy(update={'revision': r_new.revision}) != r_new:
+                    raise LiteError(
+                        'WORK_SESSIONS_ACTIVE',
+                        f'操作区 {rid}（{session.owner}）接口或范围发生变化，请先结束任务。',
+                        region_id=rid,
+                    )
+            old_owned = {uid for uid, o_rid in owners.items() if o_rid in old_subtree}
+            new_owned = {uid for uid, o_rid in new_owners.items() if o_rid in new_subtree}
+            if old_owned != new_owned:
+                raise LiteError(
+                    'WORK_SESSIONS_ACTIVE',
+                    f'操作区 {rid_root}（{session.owner}）内部成员发生变化，请先结束任务。',
+                    region_id=rid_root,
+                )
+            for uid in old_owned:
+                if uid not in old or uid not in new or canonical_object(old[uid]) != canonical_object(new[uid]):
+                    raise LiteError(
+                        'WORK_SESSIONS_ACTIVE',
+                        f'操作区 {rid_root}（{session.owner}）内对象 {uid} 发生变化，请先结束任务。',
+                        region_id=rid_root,
+                    )
+            if before.layout_connectivity and after.layout_connectivity:
+                for uid in old_owned:
+                    if before.layout_connectivity.instances.get(uid) != after.layout_connectivity.instances.get(uid):
+                        raise LiteError(
+                            'WORK_SESSIONS_ACTIVE',
+                            f'操作区 {rid_root}（{session.owner}）内器件连接发生变化，请先结束任务。',
+                            region_id=rid_root,
+                        )
+            root_bbox = before.local_data.regions[rid_root].bbox
+            old_keeps = {
+                k: v for k, v in before.local_data.keepouts.items()
+                if overlaps(root_bbox, v.bbox)
+            }
+            new_keeps = {
+                k: v for k, v in after.local_data.keepouts.items()
+                if overlaps(root_bbox, v.bbox)
+            }
+            if old_keeps != new_keeps:
+                raise LiteError('WORK_SESSIONS_ACTIVE', f'操作区 {rid_root} 禁布约束发生变化。')
+            for uid, op in old_op_map.items():
+                if operation_scope_id(before, op, profile) in old_subtree:
+                    other = new_op_map.get(uid)
+                    if other is None or other.action != op.action or other.shape != op.shape or other.placement != op.placement or other.guard != op.guard:
+                        raise LiteError(
+                            'WORK_SESSIONS_ACTIVE',
+                            f'操作区 {rid_root}（{session.owner}）的未决操作不可在任务运行中提交或丢弃，请先结束该操作区任务。',
+                            region_id=rid_root,
+                        )
+
     def validate(self, before, after, *, region_matrices=None):
         if not self._sessions:
             if self._actor is not None:

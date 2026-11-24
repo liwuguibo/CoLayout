@@ -14,7 +14,10 @@ from .transactions import write_json_atomic
 class WorkspaceFiles:
     def __init__(self, editor, current_path, open_document, folder, *, import_roots=(),
                  busy=lambda: False, save_busy=None, path_warning=lambda: None,
-                 storage=None, import_files=lambda: ()):
+                 storage=None, import_files=lambda: (), native=None,
+                 remote_enabled=lambda: True, install_cooperative=None,
+                 save_local=None, on_cooperative_baseline=None,
+                 on_guides_synced=None):
         from .workspace_storage import WorkspaceStorage
         self.storage = storage or WorkspaceStorage(Path(folder) / '.runtime')
         self.import_files = import_files
@@ -27,13 +30,30 @@ class WorkspaceFiles:
         self.busy = busy
         self.save_busy = save_busy or busy
         self.path_warning = path_warning
+        self.native = native
+        self.remote_enabled = remote_enabled
+        self.install_cooperative = install_cooperative
+        self.save_local = save_local
+        self.on_cooperative_baseline = on_cooperative_baseline
+        self.on_guides_synced = on_guides_synced
 
     def status(self):
         e = self.editor()
+        scale = e.profile.dbu_per_micron
         return {'document_id':e.w.id, 'revision':e.w.revision, 'state':e.w.state,
                 'path':str(self.current_path()), 'library':e.w.baseline.library,
                 'cell':e.w.baseline.cell, 'pending_operations':len(e.w.operations),
                 'active_regions':len(e.work_sessions.snapshots()),
+                'regions':[
+                    {
+                        'id': r.id,
+                        'name': r.name,
+                        'parent_id': r.parent_id,
+                        'pin_mode': r.pin_mode,
+                        'bounds_um': [v / scale for p in r.bbox for v in p],
+                    }
+                    for r in e.w.local_data.regions.values()
+                ],
                 'archive_folder':str(self.folder),
                 'import_roots':[str(p) for p in self.import_roots],
                 'import_files':[str(Path(p).resolve()) for p in self.import_files() if p],
@@ -81,6 +101,53 @@ class WorkspaceFiles:
             raise LiteError('WORKSPACE_FILE_TOO_LARGE','单个工作区文件上限为 256 MiB。')
         return path
 
+    def sync_guides_best_effort(self, w):
+        if self.native is None or not self.remote_enabled():
+            return {'synced': False, 'reason': 'unavailable'}
+        try:
+            reply = self.native().sync_region_guides(w)
+            if self.on_guides_synced is not None:
+                self.on_guides_synced(w)
+            return reply
+        except Exception as exc:
+            return {'synced': False, 'warning': str(exc)}
+
+    def _adopt_merged(self, e, workspace, profile):
+        if self.install_cooperative is not None:
+            self.install_cooperative(workspace, profile)
+        else:
+            e.adopt_cooperative_baseline(workspace, profile)
+            if self.on_cooperative_baseline is not None:
+                self.on_cooperative_baseline()
+            if self.save_local is not None:
+                self.save_local()
+
+    def sync_to_virtuoso(self, *, region_id=None):
+        e = self.editor()
+        if self.busy():
+            raise LiteError('WORKSPACE_BUSY', '等待当前原生/文档任务结束后再推送。')
+        if not self.remote_enabled() or self.native is None:
+            raise LiteError('REMOTE_UNAVAILABLE', '当前窗口未启用远端 Virtuoso 连接。')
+        if e.w.state in ('submitting', 'indeterminate', 'conflict'):
+            raise LiteError('WORKSPACE_REQUIRES_RECOVERY', '工作区有未决或冲突状态，请先在人端核对。')
+        from .regions.query import descendants
+
+        active_regions = {s.region_id for s in e.work_sessions.snapshots()}
+        if region_id is not None:
+            if region_id not in e.w.local_data.regions:
+                raise LiteError('REGION_MISSING', region_id)
+            subtree = descendants(e.w, region_id)
+            if subtree & active_regions:
+                raise LiteError(
+                    'WORK_SESSIONS_ACTIVE',
+                    f'操作区 {region_id}（或其子区）正在被 Agent 占用，请先 release_region 后再推送。',
+                )
+            committed = self.native().commit(e.w, scope_region_ids={region_id})
+        else:
+            committed = self.native().commit(e.w, exclude_region_ids=active_regions or None)
+        self._adopt_merged(e, committed, e.profile)
+        return {'synced': True, 'region_id': region_id, 'last_result': committed.last_result, **self.status()}
+
     def invoke(self, args):
         if args.action=='status':
             return self.status()
@@ -94,11 +161,87 @@ class WorkspaceFiles:
                         rows[row['path']]=row
             rows=sorted(rows.values(),key=lambda r:r['created_at_utc'],reverse=True)
             return {'files':rows[args.offset:args.offset+args.limit], 'total':len(rows)}
+        if args.action=='sync_regions':
+            e=self.editor()
+            if self.busy():
+                raise LiteError('WORKSPACE_BUSY','等待当前原生/文档任务结束后再推送区域边界。')
+            if not self.remote_enabled() or self.native is None:
+                raise LiteError('REMOTE_UNAVAILABLE','当前窗口未启用远端 Virtuoso 连接。')
+            reply=self.native().sync_region_guides(e.w)
+            if self.on_guides_synced is not None:
+                self.on_guides_synced(e.w)
+            return {'guides_synced':True,**reply,**self.status()}
         e=self.expected(args)
         if args.action=='save':
             if self.save_busy():
                 raise LiteError('WORKSPACE_BUSY','等待当前原生/文档任务结束后保存存档。')
             return {'saved':True,'active_document_changed':False,**self._save(e,args.name)}
+        if args.action=='create_region':
+            if self.busy():
+                raise LiteError('WORKSPACE_BUSY','等待当前原生/文档任务结束后再创建操作区。')
+            from .actions import dbu
+            from .regions.actions import RegionActions
+
+            bounds=tuple(dbu(v,e.profile) for v in args.bounds_um)
+            actions=RegionActions(e)
+            old_scope=e.scope_id
+            switched=False
+            if not e.work_sessions._actor and e.scope_id != args.parent_id:
+                e.scope_id=args.parent_id
+                switched=True
+            try:
+                rid=actions.create(bounds,name=args.name or '',parent_id=args.parent_id)
+                if args.pin_mode is not None:
+                    actions.set_pin_mode(rid,args.pin_mode)
+                if args.note is not None or args.blocked_layers is not None:
+                    reg=e.w.local_data.regions[rid]
+                    actions.update_details(
+                        rid,
+                        reg.name,
+                        args.note if args.note is not None else reg.note,
+                        tuple(args.blocked_layers) if args.blocked_layers is not None else reg.blocked_layers,
+                    )
+            finally:
+                if switched:
+                    e.scope_id=old_scope
+            if self.save_local is not None:
+                self.save_local()
+            guide_res=self.sync_guides_best_effort(e.w)
+            return {'created':True,'region_id':rid,'guides_sync':guide_res,**self.status()}
+        if args.action=='dissolve_region':
+            if self.busy():
+                raise LiteError('WORKSPACE_BUSY','等待当前原生/文档任务结束后再解散操作区。')
+            from .regions.actions import RegionActions
+
+            reg=e.w.local_data.regions.get(args.region_id)
+            if reg is None:
+                raise LiteError('REGION_MISSING',args.region_id)
+            old_scope=e.scope_id
+            switched=False
+            if not e.work_sessions._actor and e.scope_id != reg.parent_id:
+                e.scope_id=reg.parent_id
+                switched=True
+            try:
+                RegionActions(e).dissolve(args.region_id)
+            finally:
+                if switched:
+                    e.scope_id=old_scope if old_scope in e.w.local_data.regions else reg.parent_id
+            if self.save_local is not None:
+                self.save_local()
+            guide_res=self.sync_guides_best_effort(e.w)
+            return {'dissolved':args.region_id,'guides_sync':guide_res,**self.status()}
+        if args.action=='pull':
+            if self.busy():
+                raise LiteError('WORKSPACE_BUSY','等待当前原生/文档任务结束后再拉取。')
+            if not self.remote_enabled() or self.native is None:
+                raise LiteError('REMOTE_UNAVAILABLE','当前窗口未启用远端 Virtuoso 连接。')
+            if e.w.state in ('submitting','indeterminate','conflict'):
+                raise LiteError('WORKSPACE_REQUIRES_RECOVERY','工作区有未决或冲突状态，请先在人端核对。')
+            merged_w,profile=self.native().cooperative_pull(e.w)
+            self._adopt_merged(e,merged_w,profile)
+            return {'pulled':True,'last_result':merged_w.last_result,**self.status()}
+        if args.action=='sync':
+            return self.sync_to_virtuoso(region_id=args.region_id)
         e.check_revision(args.expected_revision)
         e.work_sessions.require_idle()
         if self.busy():

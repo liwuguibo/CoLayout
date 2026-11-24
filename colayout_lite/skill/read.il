@@ -18,6 +18,9 @@ procedure(lbInit(session root)
     createDir(strcat(lbRoot "/.colayout-bridge")))
   lbSession)
 
+procedure(ltIsRegionGuide(o)
+  (and o (or o~>colayoutRegionGuide o~>colayoutRegionGuideId)))
+
 procedure(lbId(obj)
   when(obj
     unless(lbIds[obj]
@@ -122,7 +125,7 @@ procedure(lbExportCV(cv)
     seen=makeTable('lbSeen nil)
     objs=nil
     foreach(obj append(append(cv~>instances cv~>shapes) append(cv~>vias cv~>mosaics))
-      unless(seen[obj] objs=cons(lbObject(obj scale) objs) seen[obj]=t))
+      unless((or seen[obj] ltIsRegionGuide(obj)) objs=cons(lbObject(obj scale) objs) seen[obj]=t))
     terms=foreach(mapcar tr cv~>terminals
       list(tr~>name tr~>direction tr~>net~>name
         foreach(mapcar pin tr~>pins list(lbId(pin) pin~>name pin~>accessDir

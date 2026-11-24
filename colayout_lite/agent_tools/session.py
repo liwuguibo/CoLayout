@@ -114,8 +114,8 @@ class AgentSession:
                 elif tool == 'workspace':
                     if self.workspace_files is None:
                         raise LiteError('WORKSPACE_FILES_UNAVAILABLE','此宿主没有提供工作区文件服务。')
-                    if value.action=='load' and any(j.future and not j.future.done() for j in self.jobs.values()):
-                        raise LiteError('WORKSPACE_BUSY','后台任务尚未结束，不能切换文档。')
+                    if value.action in ('load','pull','sync') and any(j.future and not j.future.done() for j in self.jobs.values()):
+                        raise LiteError('WORKSPACE_BUSY','后台任务尚未结束，不能执行加载或 Virtuoso 同步。')
                     result = self.workspace_files.invoke(value)
                 elif tool == 'process_configuration':
                     if self.process_configuration is None:raise LiteError('PROCESS_CONFIGURATION_UNAVAILABLE')
@@ -248,11 +248,27 @@ class AgentSession:
         if args.outcome == 'done':
             if check['state']!='passed':
                 raise LiteError('REGION_NOT_VERIFIED', '完成需当前全区连通性、本地检查及服务器检查证据。'+check['next_action'],verification=check,edit_applied=False)
+        region_id = lease.region_id
         self.release(lease)
+        virtuoso_sync = None
+        if args.outcome == 'done' and args.sync_to_virtuoso:
+            if self.workspace_files is None:
+                virtuoso_sync = {'synced': False, 'error': {'code': 'WORKSPACE_FILES_UNAVAILABLE', 'message': '工作区同步服务不可用。'}}
+            else:
+                try:
+                    virtuoso_sync = self.workspace_files.sync_to_virtuoso(region_id=region_id)
+                except LiteError as exc:
+                    virtuoso_sync = {
+                        'synced': False,
+                        'error': {'code': exc.code, 'message': str(exc), 'details': exc.details},
+                    }
         if args.outcome=='handoff':
             return {'released':True,'outcome':'handoff','edits_preserved':True,'verification':check,
                     'overall_verified':False,'note':args.note,'message':'本阶段已交接，修改保留、权限已交还；尚不代表版图整体通过验收。'}
-        return {'released': True, 'outcome': args.outcome,'verification':check}
+        payload = {'released': True, 'outcome': args.outcome,'verification':check}
+        if virtuoso_sync is not None:
+            payload['virtuoso_sync'] = virtuoso_sync
+        return payload
 
     def revoke(self, token):
         self.on_thread()
@@ -292,6 +308,10 @@ class AgentSession:
         before=lease.editor.w
         result=edit_region(lease,args,actor=self.actor)
         result['edit_applied']=lease.editor.w is not before
+        if result['edit_applied'] and self.workspace_files is not None and getattr(self.workspace_files, 'install_cooperative', None) is None:
+            from ..cooperative_sync import region_guide_signature
+            if region_guide_signature(before) != region_guide_signature(lease.editor.w):
+                result['guides_sync'] = self.workspace_files.sync_guides_best_effort(lease.editor.w)
         return self.saved(result)
 
     def route_region(self, lease, args):

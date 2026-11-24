@@ -25,7 +25,7 @@ The special tools discovery call returns currently available schemas and is not 
 
 | Tool | Purpose |
 |---|---|
-| workspace | Status and explicit archive save/load under configured roots |
+| workspace | Status, archive save/load, operation-region frame management and Virtuoso cooperative merge |
 | reference_cases | Read-only discovery and inspection of human-provided references |
 | process_configuration | Setup-role requirements, proposal submission/query and configuration export; no API approval |
 | claim_region | Exclusive ownership of one construction level |
@@ -59,6 +59,15 @@ The optional allow_45 parameter defaults to false. In the default mode, non-orth
 
 `inspect_region(kind="rules")` also reports `parasitics` metadata (`configured`, `mode`, `rc_model_digest`).
 CLI usage: `./python.sh api.py --client <name> inspect parasitics` (e.g., `--net CLK_P`, `--uids U1 U2` or repeatable `--uid`, `--radius-um 12`, `--bounds ...`, `--markup-id ...`).
+
+### Decoupled Virtuoso <-> CoLayout Cooperative Sync
+
+Humans can edit directly in the Virtuoso GUI outside operation regions while AI edits inside allocated `OperationRegion`s in CoLayout. Whenever edits are spatially disjoint, either side can push or pull immediately without discarding local drafts or terminating untouched Agent leases:
+
+- `workspace` supports cooperative actions: `create_region` (`bounds_um`, optional `name`/`pin_mode`/`parent_id`/`blocked_layers`/`note` — creates an `OperationRegion` and draws a non-fabricating warning boundary + ASCII banner in Virtuoso), `dissolve_region`, `sync_regions`, `pull` (three-way merge of outside-region Virtuoso edits under CoLayout drafts and active leases), and `sync` (push all non-leased edits or one completed `region_id` subtree onto Virtuoso's latest outside-region layout).
+- `release_region(outcome="done", sync_to_virtuoso=true)` releases an accepted region and immediately pushes only that region's subtree to Virtuoso.
+- **Region intrusion rejection (`VIRTUOSO_EDIT_IN_REGION`)**: Both `pull` and `sync` diff Virtuoso against the imported baseline and abort if any Virtuoso addition, modification or deletion overlaps or mutates an `OperationRegion`, reporting offending object names, kinds, layers, `µm` coordinates and region names while leaving both sides untouched.
+- **Unsaved Virtuoso guard (`VIRTUOSO_UNSAVED_CHANGES`)**: Sync refuses when Virtuoso reports `modifiedButNotSaved=t` until saved (`F2`) or reverted in Virtuoso.
 
 ## Identity, revision and jobs
 

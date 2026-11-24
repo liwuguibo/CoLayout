@@ -307,6 +307,81 @@ class Adapter:
         self.save(result)
         return result, p
 
+    @serialized_adapter
+    def sync_region_guides(self, w: Workspace) -> dict:
+        """Draw or update non-fabricating OperationRegion warning guides in Virtuoso."""
+        from .cooperative_sync import build_region_guides
+
+        if not w.baseline.library or not w.baseline.cell or w.validation_only:
+            return {"synced": False, "reason": "unconfigured"}
+        guides = build_region_guides(w)
+        reply = self.native.call(
+            "ltSyncRegionGuides", w.baseline.library, w.baseline.cell, guides
+        )
+        return {"synced": True, "count": len(guides), "reply": reply}
+
+    def _read_with_context(self, w: Workspace):
+        if w.circuit is not None and hasattr(self.native, "read_pair"):
+            source = w.circuit.source
+            return self.read_pair(
+                w.baseline.library,
+                w.baseline.cell,
+                schematic=(source.library, source.cell, source.view),
+            )
+        current, profile = self.read(w.baseline.library, w.baseline.cell)
+        return current, profile, w.circuit, self._rebind_connectivity(w, current)
+
+    @serialized_adapter
+    def cooperative_pull(self, w: Workspace):
+        """Pull outside-region Virtuoso changes without discarding pending region drafts."""
+        from .cooperative_sync import (
+            analyze_virtuoso_delta,
+            needs_native_prepare,
+            rebase_workspace_onto_virtuoso,
+            translate_native_unsaved_error,
+        )
+
+        self._require_settled(w)
+        current, profile = self.read(w.baseline.library, w.baseline.cell)
+        analyze_virtuoso_delta(w, current, profile)
+        if needs_native_prepare(current):
+            try:
+                self.native.call(
+                    "ltPrepare", w.baseline.library, w.baseline.cell, uuid4().hex
+                )
+            except LiteError as exc:
+                raise translate_native_unsaved_error(exc) from exc
+            current, profile, circuit, connectivity = self._read_with_context(w)
+        elif w.circuit is not None and hasattr(self.native, "read_pair") and not same_snapshot(w.baseline, current):
+            current, profile, circuit, connectivity = self._read_with_context(w)
+        else:
+            circuit = w.circuit
+            connectivity = self._rebind_connectivity(w, current)
+
+        result, _, _, delta = rebase_workspace_onto_virtuoso(
+            w, current, profile, circuit=circuit, connectivity=connectivity
+        )
+        guide_warning = None
+        if getattr(self.native, "config_path", None) is not None:
+            try:
+                self.sync_region_guides(result)
+            except Exception as exc:
+                guide_warning = str(exc)
+        last_result = {
+            "status": "cooperative_refreshed",
+            "virtuoso_delta": {
+                "added": len(delta["added"]),
+                "modified": len(delta["modified"]),
+                "deleted": len(delta["deleted"]),
+            },
+            "pending_operations": len(result.operations),
+        }
+        if guide_warning:
+            last_result["guide_sync_warning"] = guide_warning
+        result = result.model_copy(update={"last_result": last_result})
+        self.save(result)
+        return result, profile
+
     def refresh(self, w):
         if w.operations:
             raise LiteError("LOCAL_DRAFT_EXISTS")
@@ -410,20 +485,35 @@ class Adapter:
         *,
         request_id: str | None = None,
         fail_after: int | None = None,
+        scope_region_ids: set[str] | None = None,
+        exclude_region_ids: set[str] | None = None,
     ) -> Workspace:
         """Submit one verified batch; never automatically retry a native write.
 
-        Returns a clean Workspace on success, or the retained draft on a
-        confirmed rollback. Exceptions after dispatch persist an indeterminate
-        Workspace; recover it with load_workspace(w.id) and reconcile().
+        Returns a clean Workspace (or partially committed Workspace when scoped) on
+        success, or the retained draft on a confirmed rollback. Disjoint outside-region
+        edits in Virtuoso are merged automatically; edits overlapping OperationRegions
+        fail with VIRTUOSO_EDIT_IN_REGION before modifying native state.
         """
+        from .cooperative_sync import (
+            analyze_virtuoso_delta,
+            needs_native_prepare,
+            rebind_operations,
+            rebase_workspace_onto_virtuoso,
+            require_virtuoso_saved,
+            translate_native_unsaved_error,
+        )
+
         self._require_settled(w)
         from .local_models import require_references
         from .editor import projected
-        require_references(w.local_data,projected(w))
-        if w.validation_only:w.validation_scope()
-        elif getattr(self.native, 'requires_circuit_context', False) or w.circuit:
+
+        require_references(w.local_data, projected(w))
+        if w.validation_only:
+            w.validation_scope()
+        elif getattr(self.native, "requires_circuit_context", False) or w.circuit:
             from .circuit.query import require_context
+
             require_context(w)
         if not w.operations:
             return w.model_copy(update={"last_result": {"status": "no_op"}})
@@ -437,8 +527,13 @@ class Adapter:
         expected_hash = self._payload_hash(w)
         journal = TransactionJournal(self.state, request_id)
         previous = journal.check(expected_hash)
+        receipt_hash = (
+            previous["hash"]
+            if previous is not None and previous.get("source_hash") == expected_hash
+            else expected_hash
+        )
         raw_receipt = self.native.call("ltReceiptRead", request_id)
-        receipt = self._receipt(raw_receipt, w, request_id, expected_hash)
+        receipt = self._receipt(raw_receipt, w, request_id, receipt_hash)
         if receipt:
             return self.reconcile(
                 w.model_copy(
@@ -446,7 +541,8 @@ class Adapter:
                         "state": "indeterminate",
                         "last_result": {
                             "request_id": request_id,
-                            "hash": expected_hash,
+                            "hash": receipt_hash,
+                            "source_hash": expected_hash,
                         },
                     }
                 )
@@ -461,46 +557,105 @@ class Adapter:
                 "该请求有未完成的持久记录，先核对服务器实际状态。",
             )
         current, profile = self.read(w.baseline.library, w.baseline.cell)
-        require_unchanged(w, current)
-        from .regions.constraints import validate_pending
-        validate_pending(w,profile)
+        fast_path = scope_region_ids is None and exclude_region_ids is None
+        if fast_path:
+            try:
+                require_unchanged(w, current)
+            except LiteError as exc:
+                if exc.code != "SOURCE_CONFLICT":
+                    raise
+                fast_path = False
+
+        if fast_path:
+            if current.dirty and not w.baseline.dirty:
+                require_virtuoso_saved(current)
+            from .regions.constraints import validate_pending
+
+            validate_pending(w, profile)
+            full_rebased_w = w
+            tx_w = w
+            retained_ops: tuple[Operation, ...] = ()
+            tx_hash = expected_hash
+            merged_circuit = w.circuit
+            merged_connectivity = None
+        else:
+            analyze_virtuoso_delta(w, current, profile)
+            if needs_native_prepare(current):
+                try:
+                    self.native.call(
+                        "ltPrepare", w.baseline.library, w.baseline.cell, uuid4().hex
+                    )
+                except LiteError as exc:
+                    raise translate_native_unsaved_error(exc) from exc
+                current, profile, merged_circuit, merged_connectivity = self._read_with_context(w)
+            elif w.circuit is not None and hasattr(self.native, "read_pair") and not same_snapshot(w.baseline, current):
+                current, profile, merged_circuit, merged_connectivity = self._read_with_context(w)
+            else:
+                merged_circuit = w.circuit
+                merged_connectivity = self._rebind_connectivity(w, current)
+            full_rebased_w, tx_w, retained_ops, delta = rebase_workspace_onto_virtuoso(
+                w,
+                current,
+                profile,
+                circuit=merged_circuit,
+                connectivity=merged_connectivity,
+                scope_region_ids=scope_region_ids,
+                exclude_region_ids=exclude_region_ids,
+            )
+            if not tx_w.operations:
+                return full_rebased_w.model_copy(
+                    update={
+                        "last_result": {
+                            "status": "no_op",
+                            "remaining_operations": len(full_rebased_w.operations),
+                            "virtuoso_delta": {
+                                "added": len(delta["added"]),
+                                "modified": len(delta["modified"]),
+                                "deleted": len(delta["deleted"]),
+                            },
+                        }
+                    }
+                )
+            tx_hash = self._payload_hash(tx_w)
+
         # Validate again at the adapter boundary: loading or constructing a
         # Workspace directly must not bypass the local editing permissions.
         from .editor import Editor
 
         validation = Editor(
-            Workspace(baseline=w.baseline, profile_id=profile.id), profile
+            Workspace(baseline=tx_w.baseline, profile_id=profile.id), profile
         )
         ordinary = [
-            op for op in w.operations if op.action not in ("guard", "delete_guard")
+            op for op in tx_w.operations if op.action not in ("guard", "delete_guard")
         ]
         validation.apply(ordinary)
-        for op in w.operations:
+        for op in tx_w.operations:
             if op.action == "delete_guard":
                 validation.delete_guard(op.uid)
             elif op.action == "guard":
-                preview = w.guard_previews.get(op.uid)
+                preview = tx_w.guard_previews.get(op.uid)
                 if not preview or preview.get("command_digest") != digest(op.guard):
                     raise LiteError("GUARD_PREVIEW_REQUIRED")
         backup = "COLAYOUT_MVP_LITE_BACKUP_" + uuid4().hex[:12]
         request = {
             "version": "colayout-lite-1",
             "request_id": request_id,
-            "hash": expected_hash,
+            "hash": tx_hash,
             "counter": current.counter,
             "dependencies": current.dependencies,
             "backup": backup,
-            "operations": self._commands(w, current),
+            "operations": self._commands(tx_w, current),
             "fail_after": fail_after,
         }
         request["writable_lpps"] = profile.writable_lpps
-        record = journal.prepare(w, expected_hash, backup)
+        record = journal.prepare(tx_w, tx_hash, backup, source_hash=expected_hash)
         pending = w.model_copy(
             update={
                 "state": "submitting",
                 "last_result": {
                     "request_id": request_id,
-                    "hash": expected_hash,
+                    "hash": tx_hash,
+                    "source_hash": expected_hash,
                     "backup": backup,
                 },
             }
@@ -509,38 +664,50 @@ class Adapter:
         try:
             receipt = self._receipt(
                 self.native.transact(current.library, current.cell, request),
-                w,
+                tx_w,
                 request_id,
-                expected_hash,
+                tx_hash,
             )
             if not receipt:
                 raise LiteError("MISSING_RECEIPT")
             after, _ = self.read(current.library, current.cell)
             if receipt.status == "saved":
-                after=self._verify_saved_readback(w,after,profile)
+                after = self._verify_saved_readback(tx_w, after, profile)
                 after = retain_display(w.baseline, after)
-                result = w.model_copy(
+                rebound_retained = (
+                    rebind_operations(retained_ops, full_rebased_w.baseline, after)
+                    if retained_ops
+                    else ()
+                )
+                retained_uids = {op.uid for op in rebound_retained}
+                final_previews = {
+                    k: v for k, v in full_rebased_w.guard_previews.items() if k in retained_uids
+                }
+                result = full_rebased_w.model_copy(
                     update={
                         "baseline": after,
-                        "layout_connectivity": self._rebind_connectivity(w, after),
-                        "operations": (),
-                        "guard_previews": {},
+                        "circuit": merged_circuit,
+                        "layout_connectivity": self._rebind_connectivity(full_rebased_w, after),
+                        "operations": rebound_retained,
+                        "guard_previews": final_previews,
                         "revision": w.revision + 1,
-                        "state": "clean",
+                        "state": "editing" if rebound_retained else "clean",
                         "last_result": {
                             "status": "saved_verified",
                             "request_id": request_id,
                             "backup": backup,
+                            "remaining_operations": len(rebound_retained),
                         },
                     }
                 )
             elif receipt.status == "rolled_back":
-                if not same_snapshot(after,w.baseline):
+                if not same_snapshot(after, tx_w.baseline):
                     raise LiteError("ROLLBACK_MISMATCH")
-                result = w.model_copy(
+                result = full_rebased_w.model_copy(
                     update={
                         "baseline": after,
-                        "layout_connectivity": self._rebind_connectivity(w, after),
+                        "circuit": merged_circuit,
+                        "layout_connectivity": self._rebind_connectivity(full_rebased_w, after),
                         "state": "editing",
                         "last_result": {
                             "status": "rolled_back",
@@ -555,8 +722,8 @@ class Adapter:
             record["status"] = result.last_result["status"]
             journal.write(record)
             self.save(result)
-            track_temporary(self,current.library,backup,current.cell)
-            if result.state == "clean":
+            track_temporary(self, current.library, backup, current.cell)
+            if result.last_result.get("status") == "saved_verified":
                 try:
                     self.native.call(
                         "ltRelease", [current.library + "/" + current.cell]
@@ -564,8 +731,22 @@ class Adapter:
                 except Exception as release_error:
                     record["resource_release_error"] = str(release_error)
                     journal.write(record)
+                if result.local_data.regions and getattr(self.native, "config_path", None) is not None:
+                    try:
+                        self.sync_region_guides(result)
+                    except Exception as guide_err:
+                        result = result.model_copy(
+                            update={
+                                "last_result": {
+                                    **result.last_result,
+                                    "guide_sync_warning": str(guide_err),
+                                }
+                            }
+                        )
+                        self.save(result)
             return result
         except Exception as exc:
+            exc = translate_native_unsaved_error(exc) if isinstance(exc, LiteError) else exc
             record["status"] = "indeterminate"
             error_message = str(exc)
             record["error"] = error_message
@@ -591,7 +772,7 @@ class Adapter:
                     exc.add_note(
                         f"Could not persist recovery evidence: {storage_error}"
                     )
-            raise
+            raise exc
 
     def reconcile(self, w: Workspace) -> Workspace:
         """Resolve an unknown write by validating its receipt AND actual layout."""
@@ -601,28 +782,43 @@ class Adapter:
                 "NO_PENDING_REQUEST",
                 "没有待核对的提交回执；若提示服务器差异，请使用“保留草稿另建副本”。",
             )
-        expected_hash = self._payload_hash(w)
-        if w.last_result.get("hash", expected_hash) != expected_hash:
+        expected_source_hash = self._payload_hash(w)
+        if w.last_result.get("source_hash", w.last_result.get("hash", expected_source_hash)) != expected_source_hash:
             raise LiteError(
                 "RECEIPT_MISMATCH", "未决草稿内容已改变；请加载原持久工作区。"
             )
+        tx_hash = w.last_result.get("hash", expected_source_hash)
         journal = TransactionJournal(self.state, uid)
-        record = journal.check(expected_hash)
-        self._receipt(self.native.call("ltReceiptRead", uid), w, uid, expected_hash)
-        actual, profile = self.read(w.baseline.library, w.baseline.cell)
+        record = journal.check(expected_source_hash)
+        tx_w = w
+        if tx_hash != expected_source_hash and journal.workspace_path.exists():
+            tx_w = Workspace.model_validate_json(
+                journal.workspace_path.read_text(encoding="utf-8")
+            )
+        self._receipt(self.native.call("ltReceiptRead", uid), tx_w, uid, tx_hash)
+        actual, profile = self.read(tx_w.baseline.library, tx_w.baseline.cell)
         try:
-            matches = verify(w, actual, profile=profile)
+            matches = verify(tx_w, actual, profile=profile)
         except LiteError:
             matches = False
         if matches:
             actual = retain_display(w.baseline, actual)
+            commit_uids = {op.uid for op in tx_w.operations}
+            retained = tuple(op for op in w.operations if op.uid not in commit_uids)
+            if retained:
+                from .cooperative_sync import rebind_operations
+
+                retained = rebind_operations(retained, w.baseline, actual)
+            retained_uids = {op.uid for op in retained}
             result = w.model_copy(
                 update={
                     "baseline": actual,
                     "layout_connectivity": self._rebind_connectivity(w, actual),
-                    "operations": (),
-                    "guard_previews": {},
-                    "state": "clean",
+                    "operations": retained,
+                    "guard_previews": {
+                        k: v for k, v in w.guard_previews.items() if k in retained_uids
+                    },
+                    "state": "editing" if retained else "clean",
                     "revision": w.revision + 1,
                     "last_result": {
                         "status": "saved_verified",
@@ -631,7 +827,7 @@ class Adapter:
                     },
                 }
             )
-        elif same_snapshot(actual,w.baseline):
+        elif same_snapshot(actual, tx_w.baseline):
             result = w.model_copy(
                 update={
                     "baseline": actual,

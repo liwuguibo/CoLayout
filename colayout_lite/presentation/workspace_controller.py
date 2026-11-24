@@ -172,7 +172,111 @@ class WorkspaceController:
             lambda changed: host.workspace_changed.emit((owner, changed))
         )
         host._work_unsubscribe = owner.work_sessions.subscribe(host._on_work_sessions_changed)
+        from ..cooperative_sync import region_guide_signature
+
+        host._last_guide_signature = region_guide_signature(host.editor.w)
         host.view_state_changed.emit()
+
+    def install_cooperative(self, w, p):
+        """Install a merged baseline without dropping active regions or recreating Editor."""
+        host = self.window
+        old_editor = host.editor
+        if (
+            old_editor is None
+            or old_editor.w.baseline.library != w.baseline.library
+            or old_editor.w.baseline.cell != w.baseline.cell
+        ):
+            return host.install_preserving_view(w, p)
+        old = old_editor.w
+        old_editor.work_sessions.validate_cooperative_baseline(old, w, p)
+        if hasattr(host, 'human'):
+            host.human.escape()
+        if hasattr(host, 'selection_ui'):
+            host.selection_ui.cancel()
+        if hasattr(host, 'inspection'):
+            host.inspection.focus_pin()
+        from ..camera import capture, restore
+        from ..inspection_data import prime_pin_geometry
+        from ..cooperative_sync import region_guide_signature
+
+        camera = capture(host.canvas)
+        next_objects = projected(w)
+        selected = host.diagnostics.selected_uid
+        styles_changed = old.baseline.display.get('styles') != w.baseline.display.get('styles')
+        deps_changed = old.baseline.dependency_digest != w.baseline.dependency_digest
+        changed = {
+            uid
+            for uid in old.baseline.objects.keys() | w.baseline.objects.keys()
+            if uid not in old.baseline.objects
+            or uid not in w.baseline.objects
+            or old.baseline.objects[uid].semantic() != w.baseline.objects[uid].semantic()
+        }
+        changed.update(op.uid for op in old.operations)
+        changed.update(op.uid for op in w.operations)
+        for preview in (*old.guard_previews.values(), *w.guard_previews.values()):
+            changed.update(preview['objects'])
+        changed = affected_owners(
+            changed,
+            host.groups,
+            next_objects,
+            sources=(
+                old.baseline.objects,
+                getattr(host, '_visible_objects', {}),
+                w.baseline.objects,
+            ),
+            text_owners={**old.baseline.text_owners, **w.baseline.text_owners},
+        )
+        host._painting = True
+        host._suppress_workspace_notify = True
+        try:
+            if styles_changed or deps_changed:
+                host.base_figures, host.styles = figures_by_owner(
+                    w.baseline, modes=host.display_choices()
+                )
+                host.textures = {k: make_texture(v) for k, v in host.styles.items()}
+                draw_uids = set(w.baseline.objects) if styles_changed else changed
+            else:
+                updated, _ = (
+                    figures_by_owner(w.baseline, modes=host.display_choices(), owner_filter=changed)
+                    if changed
+                    else ({}, {})
+                )
+                host.base_figures = {
+                    **{uid: f for uid, f in host.base_figures.items() if uid not in changed},
+                    **updated,
+                }
+                draw_uids = changed
+            host.canvas.configure_preview(
+                sum(map(len, host.base_figures.values())),
+                changed_owners=None if (styles_changed or deps_changed) else changed,
+            )
+            adopted = old_editor.adopt_cooperative_baseline(w, p)
+            host._visible_objects = next_objects
+            for uid in set(host.groups) - set(host._visible_objects):
+                host.groups.pop(uid).remove()
+            for uid in draw_uids:
+                if uid in next_objects:
+                    host.draw_owner(uid)
+            host.local_refresh(draw_uids)
+            if selected in host._visible_objects:
+                host.diagnostics.set_selected(selected)
+                host.select_uid(selected)
+            prime_pin_geometry(old_editor.w, old_editor.profile)
+            host.canvas.prime_vector_records(lambda uid: host.groups[uid].childItems())
+            host._last_guide_signature = region_guide_signature(adopted)
+        finally:
+            host._suppress_workspace_notify = False
+            host._painting = False
+        if hasattr(host, 'agent_hub') and host.agent_hub is not None:
+            host.agent_hub.runtime.ownership.on_cooperative_baseline()
+        host.save_local()
+        host.controls()
+        if host.centralWidget() and host.centralWidget().layout():
+            host.centralWidget().layout().activate()
+        restore(host.canvas, camera)
+        host.refresh_workspace_overlay()
+        host.view_state_changed.emit()
+        return camera
 
     def install_preserving_view(self, w, p):
         host = self.window

@@ -14,21 +14,48 @@ class Claim(Arguments):
 
 
 class WorkspaceFile(Arguments):
-    action: Literal['status','save','list','load'] = 'status'
+    action: Literal[
+        'status',
+        'save',
+        'list',
+        'load',
+        'create_region',
+        'dissolve_region',
+        'sync_regions',
+        'pull',
+        'sync',
+    ] = 'status'
     expected_document_id: str | None = None
     expected_revision: StrictInt | None = None
     name: str | None = Field(default=None,max_length=100)
     path: str | None = Field(default=None,max_length=4000)
     offset: StrictInt = Field(default=0,ge=0)
     limit: StrictInt = Field(default=50,ge=1,le=100)
+    bounds_um: tuple[float, float, float, float] | None = None
+    region_id: str | None = Field(default=None, min_length=1, max_length=200)
+    parent_id: str | None = Field(default=None, min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=4000)
+    pin_mode: Literal['fixed', 'directional'] | None = None
+    blocked_layers: list[str] | None = Field(default=None, max_length=32)
 
     @model_validator(mode='after')
     def applicable(self):
-        if self.action in ('save','load') and (not self.expected_document_id or self.expected_revision is None):
-            raise ValueError('save/load require expected_document_id and expected_revision')
+        if self.action in ('save','load','create_region','dissolve_region','pull','sync') and (
+            not self.expected_document_id or self.expected_revision is None
+        ):
+            raise ValueError(f'{self.action} requires expected_document_id and expected_revision')
         if self.action=='load' and not self.path:raise ValueError('load requires path')
         if self.path is not None and self.action!='load':raise ValueError('path is only used by load')
-        if self.name is not None and self.action!='save':raise ValueError('name is only used by save')
+        if self.name is not None and self.action not in ('save','create_region'):
+            raise ValueError('name is only used by save or create_region')
+        if self.action=='create_region':
+            if self.bounds_um is None:raise ValueError('create_region requires bounds_um')
+        elif any(v is not None for v in (self.bounds_um,self.parent_id,self.note,self.pin_mode,self.blocked_layers)):
+            raise ValueError('bounds_um/parent_id/note/pin_mode/blocked_layers are only used by create_region')
+        if self.action=='dissolve_region' and not self.region_id:
+            raise ValueError('dissolve_region requires region_id')
+        if self.region_id is not None and self.action not in ('dissolve_region','sync'):
+            raise ValueError('region_id is only used by dissolve_region or sync')
         return self
 
 
@@ -169,6 +196,16 @@ class Capture(Located):
 class Release(Scoped):
     outcome: Literal['done', 'cancelled', 'handoff'] = 'cancelled'
     note: str = Field(default='', max_length=20000)
+    sync_to_virtuoso: bool = Field(
+        default=False,
+        description='仅 outcome=done 时可用：释放后立即将该操作区改动协同推送到 Virtuoso（不覆盖区外人类改动；若人类改动落入操作区则报错拦截）。',
+    )
+
+    @model_validator(mode='after')
+    def check_sync_to_virtuoso(self):
+        if self.sync_to_virtuoso and self.outcome != 'done':
+            raise ValueError('sync_to_virtuoso requires outcome=done')
+        return self
 
 
 class ServerDrc(Scoped):
@@ -197,7 +234,7 @@ class Reference(Arguments):
 
 TOOLS = {
     'process_configuration': (ProcessConfigurationArgs, '独立工艺配置：requirements 获取配置包 schema、采集清单和本机连接；list/get/status 读取配置与提案；submit 提交统一配置待人审核；export 返回可分享的配置 JSON。无需占用操作区。仅 UI 可以批准、验证并启用，API 没有 approve。双排保护环和开放路径必须来自用户样例。包不携带连接凭据；实际版图不受提交影响。'),
-    'workspace': (WorkspaceFile, '整工作区文件：status/list 无需接入；save 保存独立存档而不切换当前文件；load 从已允许目录读取 .colayout.json，先备份当前文档，再打开工作副本。加载要求所有区域空闲、后台任务结束且没有未决原生事务。不会自动同步 Virtuoso。'),
+    'workspace': (WorkspaceFile, '整工作区文件、操作区边界与 Virtuoso 协同：status/list 无需接入；save/load 读写独立存档；create_region/dissolve_region/sync_regions 在 CoLayout 中管理操作区并向 Virtuoso 写入不可制造红框警示边界；pull 拉取 Virtuoso 区外人类改动并与本地草稿/运行中任务合并；sync 将全部或指定已完成 region_id 的改动协同推送回 Virtuoso（若人类改动落入操作区则返回 VIRTUOSO_EDIT_IN_REGION）。'),
     'reference_cases': (Reference, '查询人添加的本地案例库，读取原理图/版图快照或预览；只读，无需区域接入。'),
     'server_drc_region': (ServerDrc, '异步服务器 Calibre 全规则 DRC，可独立启动用于排查，不要求本地先通过。推荐经常先跑本地检查；完成仍需当前全区两类证据。默认整个已接入操作区，可给区内 bounds_um，但局部结果不能用于完成。仅直接子操作区与原生嵌套模块内部为黑盒；普通器件正常检查。start 必须给 expected_revision。UI、API 和完成验收统一使用人端工艺过滤设置；原始报告保留。'),
     'claim_region': (Claim, '凭人或父 Agent 分配的操作区 ID 独占当前层；父子可分别接入，只列出本层直属子区，不进入更深层。'),
@@ -221,7 +258,7 @@ TOOLS = {
         Capture,
         '返回本区域的 PNG 截图和坐标范围；可查看本区域当前布线候选，不改变人的视图。',
     ),
-    'release_region': (Release, '释放本层占用；done 需当前全区本地检查和服务器 DRC 均 passed=true；本地实际错误、连通问题和检查失败仍阻断完成。没有顺序门禁，两类证据缺一不可。handoff 保留修改并交还，不代表验收通过，可附 note。区域完成不代表整芯片或 LVS 签核。'),
+    'release_region': (Release, '释放本层占用；done 需当前全区本地检查和服务器 DRC 均 passed=true；本地实际错误、连通问题和检查失败仍阻断完成。支持 sync_to_virtuoso=true 在验收释放后立即协同推送本区改动到 Virtuoso。没有顺序门禁，两类证据缺一不可。handoff 保留修改并交还，不代表验收通过，可附 note。区域完成不代表整芯片或 LVS 签核。'),
 }
 EDIT_ACTIONS = frozenset(
     (

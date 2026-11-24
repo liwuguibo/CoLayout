@@ -104,6 +104,15 @@ class RegionLeases:
         while len(lease.observations) > 256:
             lease.observations.pop(next(iter(lease.observations)))
 
+    def on_cooperative_baseline(self):
+        e = self.editor
+        if e is None:
+            return
+        for lease in self.leases.values():
+            if lease.editor is e:
+                lease.history.clear()
+                self.observe(lease)
+
     def release(self, lease):
         current = lease.editor.work_sessions.session_for(lease.region_id)
         if current and current.id == lease.work_id:

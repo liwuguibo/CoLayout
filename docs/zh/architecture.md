@@ -47,7 +47,7 @@ flowchart LR
 | autoroute/、layout_helpers.py | 冻结算法输入、候选几何和共享组合动作 |
 | parasitic_models.py、parasitic_rc.py、parasitic_surrogate.py、parasitic_nn/、parasitic_workspace.py、parasitic_view.py | 已审核且有范围限制的 RC 系数与可选纯 NumPy 神经网络代理（含 3D 过孔聚类与节点电阻）、按需本地几何估算、共享 Agent HTTP (`inspect_region(kind="parasitics")`) 与异步黑盒安全显示 |
 | wire_capture.py、wire_panel.py | 未确认的正交走线草稿、换层和过孔预览；确认时复用现有 Editor 单次事务 |
-| adapter.py、sync_checks.py、transactions.py | 原生源/依赖前提、事务日志和对账 |
+| adapter.py、cooperative_sync.py、sync_checks.py、transactions.py | 原生源/依赖前提、Virtuoso 非制造引导边界与双向空间协同合并、事务日志和对账 |
 | transport.py、native_lane.py、skill/ | Bridge 边界、原生通道串行调度、CoLayout 自有 SKILL 内核 |
 | workspace_app.py、studio_window.py、studio_shell.py、presentation/ | 窗口生命周期、场景显示、任务回调和区域只读渲染 |
 | process_package.py、process_configuration.py、process_setup.py、process_agent.py | 统一工艺数据、人端审核、样例采集与原生复现 |
@@ -107,7 +107,7 @@ Qt 所属线程串行发布编辑。耗时查询、检查和批量操作使用�
 
 ## 原生写入与恢复
 
-只有显式导入／同步、原生几何生成和服务器检查访问 Virtuoso。原生事务先核对源、依赖和基线，在修改前记录请求，保存回执，再核验保存／导出后采用新基线。结果未知时必须沿用相同身份对账，不能清 pending、改状态、换请求 ID 或放松几何核对来绕过失败。
+只有显式导入／同步、区域边界引导绘制、原生几何生成和服务器检查访问 Virtuoso。原生事务先核对源、依赖、Virtuoso 未保存状态及操作区空间不重叠加性（若 Virtuoso 新增/修改/删除元素落入操作区则以 `VIRTUOSO_EDIT_IN_REGION` 阻断；区外互不干涉的改动自动三路变基合并），在修改前记录请求，保存回执，再核验保存／导出后采用新基线。部分区域推送保留未参与推送的操作区草稿与运行中租约。结果未知时必须沿用相同身份对账，不能清 pending、改状态、换请求 ID 或放松几何核对来绕过失败。
 
 临时原生 cell 使用所有权与租约记录。只清理已证明归本程序所有、已到期的对象，保留不确定事务。不能仅按名称前缀删除 cell。
 

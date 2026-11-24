@@ -93,8 +93,12 @@ def decode(raw):
     metas={p[0]:p for p in meta};objects={};id_to_uid={}
     for row in rows or []:
         ident,kind,bounds,lpp,net,props,geometry=row;m=metas[ident];g=dict(geometry or [])
-        uid=m[1] or 'session:'+ident;id_to_uid[ident]=uid
+        uid=m[1] or 'session:'+ident
         reason='missing_persistent_identity' if not m[1] else None
+        if m[1] and uid in objects:
+            uid='session:'+ident
+            reason='duplicate_persistent_identity'
+        id_to_uid[ident]=uid
         shape=None;placement=None
         try:shape=native_shape(row,m,profile)
         except (ValueError,ValidationError,KeyError,TypeError) as exc:reason='unsupported_geometry: '+str(exc)

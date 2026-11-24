@@ -1,7 +1,8 @@
 from pathlib import Path
 from time import sleep,perf_counter
+from uuid import uuid4
 import json,shlex,re
-from ..adapter import Adapter,require_unchanged
+from ..adapter import Adapter,require_unchanged,same_snapshot
 from ..paths import ROOT
 from ..transport import NativeTransport, skill
 from ..process_library import write_json
@@ -62,15 +63,31 @@ def _run(w,technology,profile,region,job_id,folder,progress,context,waive_region
     from ..native_temporary import TemporaryCopies
     context['temporary']=TemporaryCopies(a).__enter__()
     context['native']=a.native
-    current,_=a.read(source.library,source.cell);require_unchanged(w,current)
+    current, current_profile = a.read(source.library, source.cell)
+    rebased_w = w
+    if current.dirty or not same_snapshot(source, current):
+        from ..cooperative_sync import (
+            analyze_virtuoso_delta,
+            needs_native_prepare,
+            rebase_workspace_onto_virtuoso,
+            translate_native_unsaved_error,
+        )
+        analyze_virtuoso_delta(w, current, current_profile)
+        if needs_native_prepare(current):
+            try:
+                a.native.call("ltPrepare", source.library, source.cell, uuid4().hex)
+            except LiteError as exc:
+                raise translate_native_unsaved_error(exc) from exc
+            current, current_profile = a.read(source.library, source.cell)
+        rebased_w, _, _, _ = rebase_workspace_onto_virtuoso(w, current, current_profile)
     progress('preparing','正在复制检查快照，包含本地未同步修改…',stage='snapshot_preparation')
-    factory=a.create_validation_workspace if w.validation_only else a.create_workspace
+    factory=a.create_validation_workspace if rebased_w.validation_only else a.create_workspace
     private,p=factory(source.library,source.cell,label='PREVIEW_DRC')
     context['private']=private;checkpoint()
-    if w.operations:
+    if rebased_w.operations:
         progress('preparing','正在应用并核对检查副本的本地修改…',stage='snapshot_commit')
         from ..clone_draft import bind
-        private=a.commit(bind(w,private))
+        private=a.commit(bind(rebased_w,private))
     if private.state!='clean':raise LiteError('DRC_SNAPSHOT_NOT_CLEAN')
     if private.baseline.dirty:
         raise LiteError('DRC_SNAPSHOT_NOT_SAVED','检查副本仍有未保存变化，未导出或执行 DRC。',stage='snapshot_save')
@@ -112,8 +129,8 @@ def _run(w,technology,profile,region,job_id,folder,progress,context,waive_region
                 if not log.completed or log.error_count:
                     a.native.client.ssh_runner.run_command('touch -- '+shlex.quote(remote+'/cancel.flag'),timeout=10)
                     raise LiteError('DRC_XSTREAM_FAILED')
-                refreshed,_=a.read(source.library,source.cell);require_unchanged(w,refreshed)
-                if not same_dependencies(source,refreshed):raise LiteError('DRC_SOURCE_CHANGED_DURING_EXPORT')
+                refreshed,_=a.read(source.library,source.cell);require_unchanged(rebased_w,refreshed)
+                if not same_dependencies(rebased_w.baseline,refreshed):raise LiteError('DRC_SOURCE_CHANGED_DURING_EXPORT')
                 a.native.client.ssh_runner.run_command('touch -- '+shlex.quote(remote+'/export.ok'),timeout=10);approved=True
             if state['status'] in ('completed','failed','cancelled'):
                 context['terminal']=True;break

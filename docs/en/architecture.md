@@ -45,7 +45,7 @@ A separate setup agent uses Bridge to collect a sample and submit a ProcessPacka
 | autoroute/, layout_helpers.py | Frozen algorithm input, proposed geometry and shared composed operations |
 | parasitic_models.py, parasitic_rc.py, parasitic_surrogate.py, parasitic_nn/, parasitic_workspace.py, parasitic_view.py | Reviewed bounded RC coefficients and optional pure-NumPy neural surrogate (with 3D via clustering and nodal resistance), on-demand local geometry estimates, shared Agent HTTP (`inspect_region(kind="parasitics")`), and blackbox-safe presentation |
 | wire_capture.py, wire_panel.py | Uncommitted orthogonal route drafts, layer transitions and via previews; one existing editor transaction on confirmation |
-| adapter.py, sync_checks.py, transactions.py | Source/dependency preconditions, native transaction journal and reconciliation |
+| adapter.py, cooperative_sync.py, sync_checks.py, transactions.py | Source/dependency preconditions, non-fabricating Virtuoso guide overlays, disjoint spatial cooperative merge, transaction journal and reconciliation |
 | transport.py, native_lane.py, skill/ | Explicit Bridge boundary, serialized native lanes and CoLayout-owned SKILL kernel |
 | workspace_app.py, studio_window.py, studio_shell.py, presentation/ | Window lifecycle, scene presentation, task callbacks and scoped read-only rendering |
 | process_package.py, process_configuration.py, process_setup.py, process_agent.py | Unified PDK data, human review, sample collection and native reproduction |
@@ -105,7 +105,7 @@ Server checks run on private copies containing the local edits. Both UI and API 
 
 ## Native writes and recovery
 
-Only explicit import/sync, native generation and server checks access Virtuoso. A native transaction verifies source, dependencies and baseline; journals its request before mutation; records receipts; then verifies save/export before adopting a new baseline. Unknown results require reconciliation with the same identity. Do not clear pending, mutate transaction status, regenerate a request ID or weaken geometry checks to bypass a failure.
+Only explicit import/sync, non-fabricating region warning-guide updates, native generation and server checks access Virtuoso. Cooperative pulls/commits check for unsaved Virtuoso edits (`VIRTUOSO_UNSAVED_CHANGES`) and verify spatial disjointness against all `OperationRegion`s (`VIRTUOSO_EDIT_IN_REGION`), three-way rebasing local drafts and preserving untouched active region leases when edits do not overlap. Every native transaction journals its request before mutation, records receipts, and verifies save/export readback before adopting the merged baseline. Scoped region sync preserves deferred sibling drafts and active leases. Unknown results require reconciliation with the same identity. Do not clear pending, mutate transaction status, regenerate a request ID or weaken geometry checks to bypass a failure.
 
 Temporary native cells have ownership/lease tracking. Clean only proven-owned expired artifacts and preserve uncertain transactions. Never delete an arbitrary cell just because its name resembles a temporary prefix.
 
