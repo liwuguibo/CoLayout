@@ -314,7 +314,7 @@ def analyze_virtuoso_delta(w: Workspace, current: Snapshot, profile) -> dict:
             for route in (base_routes.get(ruid), curr_routes.get(ruid)):
                 if route is None:
                     continue
-                for member_uid in route.object_uids:
+                for member_uid in route.members:
                     reg_id = region_members.get(member_uid)
                     if reg_id and (member_uid, reg_id) not in reported:
                         reported.add((member_uid, reg_id))

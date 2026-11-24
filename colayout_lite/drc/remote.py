@@ -63,7 +63,7 @@ def _run(w,technology,profile,region,job_id,folder,progress,context,waive_region
     from ..native_temporary import TemporaryCopies
     context['temporary']=TemporaryCopies(a).__enter__()
     context['native']=a.native
-    current, current_profile = a.read(source.library, source.cell)
+    current, current_profile = a._read_cooperative_source(source.library, source.cell)
     rebased_w = w
     if current.dirty or not same_snapshot(source, current):
         from ..cooperative_sync import (

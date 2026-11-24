@@ -25,7 +25,7 @@ Agent 占用时，CoLayout 内该操作层的人类物理编辑会锁定，查�
 
 CoLayout 将人类在 Virtuoso GUI 中的全局/区外设计与 AI 在本地操作区（`OperationRegion`）内的编辑解耦，只要两者编辑的物理区域完全错开，任一方完成后都可随时合并推送，互不影响：
 
-- **Virtuoso 操作区警示边界自动同步**：在 CoLayout UI 或通过 Agent API（`workspace create_region` / `dissolve_region`、调整边框或收紧区域）更新操作区后，系统会自动在 Virtuoso 对应 cellview 中刷新不可制造警示边界（`marker/warning` 与 `y0/drawing` 边框及 ASCII 标签 `[CoLayout AI Region: <名称/ID>] DO NOT EDIT INSIDE`）。警示图形仅作可视化提醒，不会进入 CoLayout 本地工作区快照，也会在服务器 Calibre DRC 运行前自动清除。必要时也可通过 `workspace sync_regions` 手动重绘。
+- **Virtuoso 操作区警示边界自动同步**：在 CoLayout UI 或通过 Agent API（`workspace create_region` / `dissolve_region`、调整边框或收紧区域）更新操作区后，系统会自动在 Virtuoso 对应窗口通过瞬态高亮集（`geCreateHilightSet`）刷新不可制造警示边界（`marker/warning` 与 `y0/drawing` 边框及 ASCII 标签 `[CoLayout AI Region: <名称/ID>] DO NOT EDIT INSIDE`）。警示仅作视图提醒，不会改动 OA 数据库、不会污染 Layout XL 提取状态或使窗口变为未保存，也不会进入本地工作区快照与 Calibre 检查副本。必要时也可通过 `workspace sync_regions` 手动重绘。
 - **随时读取 Virtuoso 区外改动（`读取` / `workspace pull`）**：当人类在 Virtuoso 中修改操作区以外的版图并保存（`F2`）后，点击工具栏 **“读取”**（`文件 → 读取服务器`）或调用 Agent `workspace(action="pull")` 即可立即将区外改动合入工作区基线。与整工作区重导不同，协同 `pull` **不会清空本地未提交草稿（`operations`），也不会中止未受影响的活跃 Agent 操作区租约**。（若需彻底丢弃本地工作区并用服务器版图替换，请使用 `文件 → 从 Virtuoso 重新导入…`，该操作仍要求所有会话空闲。）
 - **随时推送已完成区域回 Virtuoso（`写入` / `workspace sync` / `release_region`）**：当部分操作区已完成验收（退出 Agent 占用），即使另有兄弟操作区仍由其他 Agent 占用编辑，点击 **“写入”**（`文件 → 写入 Virtuoso`）、调用 `workspace(action="sync")`（可指定单个已完成 `region_id`），或在 `release_region(outcome="done", sync_to_virtuoso=True)` 时，CoLayout 会自动把已完成改动三路变基到 Virtuoso 最新区外版图之上并写回保存与重绘，同时在本地完整保留仍在运行中的兄弟操作区草稿与租约。
 - **越界与未保存保护（安全拦截）**：

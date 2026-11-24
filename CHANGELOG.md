@@ -4,8 +4,9 @@
 
 在 `alpha` 分支基础上将人类 Virtuoso GUI 编辑与 CoLayout AI 操作区编辑彻底解耦，只要两者编辑的物理位置错开即可随时互相同步：
 
-- **Virtuoso 原生操作区警示边界**（[cooperative.il](colayout_lite/skill/cooperative.il)、[cooperative_sync.py](colayout_lite/cooperative_sync.py)）：创建、改尺寸/收紧、加载或解散操作区时，自动通过 `ltSyncRegionGuides` 在 Virtuoso 对应 cellview 中重绘不可制造警示框（优先使用 `marker/warning` + `y0/drawing` 及 `text`/`annotate` ASCII 标签 `[CoLayout AI Region: <name/id>] DO NOT EDIT INSIDE`，打标 `colayoutRegionGuide="true"`）并触发 `ltRedrawCellView`。所有 CoLayout 快照导出（`skill/read.il`、`skill/compact.il`）自动过滤此类警示图元；服务器 DRC 临时私有副本在运行前通过 `ltClearRegionGuides` 清除，不污染 Calibre 检查或最终制造版图。
-- **操作区越界精准拦截（`VIRTUOSO_EDIT_IN_REGION`）与未保存保护（`VIRTUOSO_UNSAVED_CHANGES`）**：协同 `pull` 与 `sync` 均强制先核对 Virtuoso `modifiedButNotSaved`；再通过 `analyze_virtuoso_delta` 逐项比对基线差异。一旦发现 Virtuoso 中新增、修改/移动、删除元素或路线变化落入任何操作区，立即中止并详细列出越界元素的名称、类型、图层、微米包围盒与所属操作区，提示人类删除或移出操作区后重试，双方已有编辑均完整保留。
+- **Virtuoso 原生操作区警示边界**（[cooperative.il](colayout_lite/skill/cooperative.il)、[cooperative_sync.py](colayout_lite/cooperative_sync.py)）：创建、改尺寸/收紧、加载或解散操作区时，自动通过 `ltSyncRegionGuides` 在 Virtuoso 对应窗口以非数据库瞬态高亮集（`geCreateHilightSet` / `geAddHilightRectangle` / `geAddHilightLabel`）绘制不可制造警示框与 ASCII 标签 `[CoLayout AI Region: <name/id>] DO NOT EDIT INSIDE` 并触发 `ltRedrawCellView`，**不改写 OA 数据库图形、不递增 `modifiedCounter`，也不会触发 Layout XL 提取而残留 `modifiedButNotSaved=t`**；旧版本遗留的持久化 `colayoutRegionGuide` DB 图形仍会在快照导出（`skill/read.il`、`skill/compact.il`）中过滤并在保存/克隆/服务器 DRC 前通过 `ltClearRegionGuides` 自动清理。
+- **操作区越界精准拦截（`VIRTUOSO_EDIT_IN_REGION`）与未保存保护（`VIRTUOSO_UNSAVED_CHANGES`）**：协同 `pull`、`sync`、`guard_preview` 与 `drc/remote.py` 均先核对 Virtuoso `modifiedButNotSaved`，并在遇到走线切分/复制引起的 `DUPLICATE_ROUTE_ID` / `DUPLICATE_FIGGROUP_ID` 时自动触发 `ltPrepare` 去重修复；再通过 `analyze_virtuoso_delta`（校验 `route.members` 及增删改几何）逐项比对基线差异。一旦发现 Virtuoso 中新增、修改/移动、删除元素或路线变化落入任何操作区，立即中止并详细列出越界元素的名称、类型、图层、微米包围盒与所属操作区，提示人类删除或移出操作区后重试，双方已有编辑均完整保留。
+- **连续 `create_guard` 与区外并发修复**：`Adapter.sync_region_guides` / `commit` 明确跳过 `COLAYOUT_MVP_LITE_*` 临时预览/验证副本，避免刷新临时副本计数引发连续第二次 `create_guard` 的 `ltRunRequest: SOURCE_CONFLICT`；同时 `Adapter.guard_preview` 支持在区外有已保存人类改动时自动协同变基（仍保留活跃 Agent 租约基线）。
 - **区外人类修改随时无损拉取（`pull` / `读取`）**：`Adapter.cooperative_pull` 在确认未越界后，对 Virtuoso 中新建或复制的无持久化 UID 图形自动执行 `ltPrepare` 补齐身份，再通过 `rebase_workspace_onto_virtuoso` 与 `WorkSessions.validate_cooperative_baseline` 将区外改动合入当前基准，同时完整保留 CoLayout 未提交草稿（`w.operations`）与未受影响的操作区 Agent 租约（`WorkSession`）。（仅“文件 → 从 Virtuoso 重新导入…”与 `workspace load` 仍作整工作区替换。）
 - **非占用/指定已完成操作区即时回写（`sync` / `写入` / `release_region(sync_to_virtuoso=True)`）**：支持将全部非占用操作区或指定已完成 `region_id` 子树三路变基到 Virtuoso 最新区外版图之上，经 `ltEnsureEditable` 切至可写后执行 `ltTransaction`、保存（`dbSave`）、重绘画布并完成读回核对，同时在 CoLayout 本地继续保留仍在运行中的兄弟操作区草稿与租约。
 - **Agent API 与 CLI 扩展**：`workspace` 新增 `create_region`、`dissolve_region`、`sync_regions`、`pull` 与 `sync`（可选 `--region-id`）动作，`workspace status` 返回 `regions` 摘要；`release_region` 新增 `sync_to_virtuoso` 参数（CLI 为 `--sync-to-virtuoso`），支持区域 `done` 释放后立即推送到 Virtuoso。
@@ -49,7 +50,7 @@
 
 - `linux`：643 项公开测试通过，1 项跳过。
 - `alpha`：663 项公开测试通过（铺铜阶段），随后更新至 719 项公开测试通过、1 项跳过（含 Geo-Graph v3 按需 RC 评估、画线草稿、M1 Core-Halo 分区内核、Agent 接口一致性与 SSH/IC618 回归）。
-- `beta`：726 项公开测试通过，1 项跳过（涵盖原生操作区警示边界、区外 `pull`/`sync` 三路变基合并、`VIRTUOSO_EDIT_IN_REGION` 越界拦截、`VIRTUOSO_UNSAVED_CHANGES` 检查、活跃租约保留与局部区域推送），另通过已授权私有测试副本完成端到端真实 Virtuoso 协同验证。
+- `beta`：729 项公开测试通过，1 项跳过（涵盖非 DB 高亮集警示边界、`NativeRoute.members` 区外走线合并/切分去重、`VIRTUOSO_EDIT_IN_REGION` 越界拦截、`VIRTUOSO_UNSAVED_CHANGES` 检查、活跃租约保留、局部区域推送及无同步连续 `create_guard` 回归），另通过已授权私有测试副本完成端到端真实 Virtuoso 协同验证。
 - 三个分支均通过 Ruff、客户端 schema、文档链接和发布/隐私审计。
 - Linux 固定 Bridge 依赖来源、归档校验和许可证检查通过。
 - `alpha` 的真实显示服务器 Qt 拖框与 45° 控件测试通过。

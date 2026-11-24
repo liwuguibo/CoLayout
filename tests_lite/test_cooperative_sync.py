@@ -31,6 +31,8 @@ from colayout_lite.document import save_document
 from colayout_lite.editor import Editor, projected
 from colayout_lite.model import (
     LiteError,
+    MultipartPath,
+    NativeRoute,
     Object,
     Placement,
     Shape,
@@ -244,13 +246,11 @@ class FakeCoopNative:
             return [1, 1, 0]
         if name == 'ltSyncRegionGuides':
             lib, cell, guides = values
+            if cell.startswith('COLAYOUT_MVP_LITE_'):
+                raise AssertionError(f'ltSyncRegionGuides must not be called on temporary cell {cell}')
             assert (lib, cell) == (self.current.library, self.current.cell)
-            if self.current.dirty:
-                return ['drawn_unsaved', len(guides), self.current.counter]
             self.guides = deepcopy(guides)
-            next_c = str(int(self.current.counter) + 1)
-            self.current = self.current.model_copy(update={'counter': next_c})
-            return ['synced', len(guides), next_c]
+            return ['synced', len(guides), self.current.counter]
         if name == 'ltPrepare':
             if self.current.dirty:
                 raise LiteError('NATIVE_ERROR', 'ltPrepare: ("VIRTUOSO_UNSAVED_CHANGES")')
@@ -897,3 +897,315 @@ def test_partial_cooperative_commit_reconcile_and_ui_auto_guide_sync(qapp, tmp_p
         win.close()
         QApplication.processEvents()
 
+
+def test_cooperative_pull_and_sync_with_outside_native_route_changes_and_split(tmp_path):
+    adapter, fake, editor, a1, _a2 = _make_adapter_rig(tmp_path)
+    editor.scope_id = a1
+    ai_uid = editor.create(
+        Shape(kind='rect', lpp=('M1', 'drawing'), bbox=((3500, 1000), (4500, 2000)), net_intent='NET_M_A'),
+        uid='ai-r-keep',
+    )
+    editor.scope_id = None
+
+    # 1) Outside-region NativeRoute added + outside pathSeg modified/added in Virtuoso
+    v_objs = dict(fake.current.objects)
+    ext_seg = Object(
+        uid='session:ext_seg',
+        native_id='nat:ext_seg',
+        kind='pathSeg',
+        bbox=((22000, 500), (24000, 500)),
+        shape=Shape(kind='pathSeg', lpp=('M1', 'drawing'), points=((22000, 500), (24000, 500)), width=200, net_intent='EXT1'),
+        attributes={'name': 'EXT_ROUTE_SEG'},
+        properties=[['colayoutNetIntent', 'string', ['string', 'EXT1']]],
+        observed_net='EXT1',
+        route_uid='r-ext',
+        read_only_reason='missing_persistent_identity',
+    )
+    v_objs['session:ext_seg'] = ext_seg
+    v_routes = {
+        'r-ext': NativeRoute(uid='r-ext', members=('session:ext_seg',), status='normal', net='EXT1')
+    }
+    fake.current = fake.current.model_copy(
+        update={
+            'objects': v_objs,
+            'routes': v_routes,
+            'opaque_counts': {**fake.current.opaque_counts, 'routes': 1},
+            'counter': '2',
+        }
+    )
+
+    # Simulate split route duplicate ID on initial read before ltPrepare runs
+    orig_read = fake.read
+    split_injected = {'pending': True}
+
+    def read_with_split(lib, cell):
+        if split_injected['pending']:
+            raise LiteError('DUPLICATE_ROUTE_ID', 'r-ext')
+        return orig_read(lib, cell)
+
+    orig_call = fake.call
+
+    def call_with_split(name, *values):
+        res = orig_call(name, *values)
+        if name == 'ltPrepare' and split_injected['pending']:
+            split_injected['pending'] = False
+            fixed_routes = {
+                'prep:route:1': NativeRoute(uid='prep:route:1', members=('prep:1',), status='normal', net='EXT1')
+            }
+            objs = {
+                k: (v.model_copy(update={'route_uid': 'prep:route:1'}) if k == 'prep:1' else v)
+                for k, v in fake.current.objects.items()
+            }
+            fake.current = fake.current.model_copy(update={'objects': objs, 'routes': fixed_routes})
+        return res
+
+    adapter.read = read_with_split
+    fake.read = read_with_split
+    fake.call = call_with_split
+
+    pulled, _ = adapter.cooperative_pull(editor.w)
+    assert any(name == 'ltPrepare' for name, _ in fake.calls)
+    assert 'prep:1' in pulled.baseline.objects
+    assert 'prep:route:1' in (pulled.baseline.routes or {})
+    assert [op.uid for op in pulled.operations] == [ai_uid]
+
+    # 2) Route-level change touching an inside-region object raises VIRTUOSO_EDIT_IN_REGION cleanly (no AttributeError)
+    in_seg = Object(
+        uid='in-seg',
+        native_id='nat:in_seg',
+        kind='pathSeg',
+        bbox=((1000, 1500), (2000, 1500)),
+        shape=Shape(kind='pathSeg', lpp=('M1', 'drawing'), points=((1000, 1500), (2000, 1500)), width=200, net_intent='NET_M_A'),
+        attributes={'name': 'IN_ROUTE_SEG'},
+        properties=[['colayoutObjectId', 'string', ['string', 'in-seg']], ['colayoutNetIntent', 'string', ['string', 'NET_M_A']]],
+        observed_net='NET_M_A',
+        route_uid='r-in',
+    )
+    bad_base = pulled.baseline.model_copy(
+        update={
+            'objects': {**pulled.baseline.objects, 'in-seg': in_seg},
+            'routes': {**(pulled.baseline.routes or {}), 'r-in': NativeRoute(uid='r-in', members=('in-seg',), status='normal', net='NET_M_A')},
+            'opaque_counts': {**pulled.baseline.opaque_counts, 'routes': 2},
+        }
+    )
+    bad_regs = dict(pulled.local_data.regions)
+    bad_regs[a1] = bad_regs[a1].model_copy(update={'object_uids': (*bad_regs[a1].object_uids, 'in-seg')})
+    bad_w = pulled.model_copy(
+        update={'baseline': bad_base, 'local_data': pulled.local_data.model_copy(update={'regions': bad_regs})}
+    )
+    fake.current = bad_base.model_copy(
+        update={
+            'routes': {**(bad_base.routes or {}), 'r-in': NativeRoute(uid='r-in', members=('in-seg',), status='locked', net='NET_M_A')},
+            'counter': '4',
+        }
+    )
+    with pytest.raises(LiteError) as err_route:
+        adapter.cooperative_pull(bad_w)
+    assert err_route.value.code == 'VIRTUOSO_EDIT_IN_REGION'
+    assert err_route.value.details['intrusions'][0]['change'] == 'route_member'
+    assert err_route.value.details['intrusions'][0]['region_id'] == a1
+
+
+def test_sync_regions_leaves_virtuoso_clean_and_counter_unchanged(tmp_path):
+    prof = _coop_profile()
+    snap, circuit, connectivity = _initial_snapshot_and_context(prof)
+    fake = FakeCoopNative(tmp_path, snap, prof, circuit, connectivity)
+    adapter = Adapter(fake)
+    adapter.read = fake.read
+    editor = Editor(
+        Workspace(baseline=snap, profile_id=prof.id, circuit=circuit, layout_connectivity=connectivity, connection_config=str(fake.config_path)),
+        prof,
+    )
+    doc = tmp_path / 'doc.colayout.json'
+    save_document(doc, editor.w, prof)
+    archive = tmp_path / 'workspaces'
+    archive.mkdir()
+    files = WorkspaceFiles(
+        lambda: editor,
+        lambda: doc,
+        lambda p: None,
+        archive,
+        storage=WorkspaceStorage(tmp_path / 'storage'),
+        native=lambda: adapter,
+    )
+    before_counter = fake.current.counter
+    created = files.invoke(files_args := __import__('colayout_lite.agent_tools.contract', fromlist=['WorkspaceFile']).WorkspaceFile(
+        action='create_region',
+        expected_document_id=editor.w.id,
+        expected_revision=editor.w.revision,
+        bounds_um=(33.0, 0.0, 37.0, 3.0),
+        name='CleanGuide',
+    ))
+    assert created['guides_sync']['synced'] is True
+    assert fake.current.counter == before_counter
+    assert fake.current.dirty is False
+
+    synced = files.invoke(__import__('colayout_lite.agent_tools.contract', fromlist=['WorkspaceFile']).WorkspaceFile(action='sync_regions'))
+    assert synced['guides_synced'] is True
+    assert fake.current.counter == before_counter
+    assert fake.current.dirty is False
+
+    pulled = files.invoke(type(files_args)(
+        action='pull', expected_document_id=editor.w.id, expected_revision=editor.w.revision
+    ))
+    assert pulled['pulled'] is True
+
+
+def test_consecutive_create_guard_without_sync_and_with_outside_virtuoso_edits(tmp_path):
+    prof = _coop_profile().model_copy(
+        update={
+            'guard_templates': [
+                {'library': 'TECH', 'name': 'pguard', 'definition': '(("M1" "drawing") nil nil nil)'}
+            ]
+        }
+    )
+    snap, circuit, connectivity = _initial_snapshot_and_context(prof)
+
+    class GuardCoopNative(FakeCoopNative):
+        def __init__(self):
+            super().__init__(tmp_path, snap, prof, circuit, connectivity)
+            self.cells = {(snap.library, snap.cell): snap}
+            self.guide_cells_called = []
+
+        def read(self, library, cell):
+            return self.cells[(library, cell)], self.profile
+
+        def call(self, name, *values):
+            if name == 'lcClonePaired':
+                lib, src_cell, dst_cell, _seed = values
+                src = self.cells[(lib, src_cell)]
+                self.cells[(lib, dst_cell)] = src.model_copy(update={'cell': dst_cell, 'counter': '10'})
+                self.calls.append((name, values))
+                return ['copied', dst_cell]
+            if name == 'ltSyncRegionGuides':
+                lib, cell, guides = values
+                self.guide_cells_called.append(cell)
+                return super().call(name, lib, cell, guides)
+            if name == 'ltRelease':
+                return [1, 1, 0]
+            return super().call(name, *values)
+
+        def transact(self, library, cell, request):
+            cv = self.cells[(library, cell)]
+            saved_current = self.current
+            self.current = cv
+            try:
+                old_objs = dict(self.current.objects)
+                # Temporarily rewrite guard op to handle guard natively after standard checks
+                normal_req = dict(request)
+                guard_ops = [cmd for cmd in request['operations'] if cmd['action'] == 'guard']
+                normal_req['operations'] = [cmd for cmd in request['operations'] if cmd['action'] != 'guard']
+                receipt = super().transact(library, cell, normal_req)
+                if guard_ops:
+                    objs = dict(self.current.objects)
+                    for cmd in guard_ops:
+                        guid = cmd['uid']
+                        spec = cmd['guard']
+                        pts = [[int(p[0]), int(p[1])] for p in spec['points']]
+                        xs = [p[0] for p in pts]
+                        ys = [p[1] for p in pts]
+                        bbox = ((min(xs), min(ys)), (max(xs), max(ys)))
+                        master = Shape(kind='path', lpp=('M1', 'drawing'), points=tuple(tuple(p) for p in pts), width=200, net_intent=spec.get('net_intent'))
+                        objs[guid] = Object(
+                            uid=guid,
+                            native_id=f'nat:{guid}',
+                            kind='path',
+                            bbox=bbox,
+                            mpp=MultipartPath(
+                                master=master,
+                                name=spec['template'],
+                                parts=[{'lpp': ['M1', 'drawing'], 'kind': 'rect', 'net_intent': spec.get('net_intent')}],
+                                native_definition=spec['definition'],
+                            ),
+                            attributes={'name': guid[:8]},
+                            properties=[
+                                ['colayoutObjectId', 'string', ['string', guid]],
+                                ['colayoutStructureUid', 'string', ['string', guid]],
+                                ['colayoutNetIntent', 'string', ['string', spec.get('net_intent') or '']],
+                            ],
+                            observed_net=spec.get('net_intent'),
+                            group_uid=guid,
+                            read_only_reason='protected_group',
+                        )
+                    next_c = str(int(self.current.counter) + 1)
+                    self.current = self.current.model_copy(update={'objects': objs, 'counter': next_c})
+                self.cells[(library, cell)] = self.current
+                if (library, cell) == (saved_current.library, saved_current.cell):
+                    saved_current = self.current
+                return receipt
+            finally:
+                self.current = saved_current
+
+    fake = GuardCoopNative()
+    adapter = Adapter(fake)
+    adapter.read = fake.read
+
+    def fake_read_pair(lib, cell, *, schematic=None):
+        s, p = fake.read(lib, cell)
+        c = fake.circuit.model_copy(update={'source': fake.circuit.source.model_copy(update={'library': lib, 'cell': cell, 'counter': s.counter})})
+        conn = fake.connectivity.model_copy(update={'source': fake.connectivity.source.model_copy(update={'library': lib, 'cell': cell, 'counter': s.counter})})
+        return s, p, c, conn
+
+    adapter.read_pair = fake_read_pair
+    fake.read_pair = fake_read_pair
+
+    editor = Editor(
+        Workspace(baseline=snap, profile_id=prof.id, circuit=circuit, layout_connectivity=connectivity, connection_config=str(fake.config_path)),
+        prof,
+    )
+    a1 = RegionActions(editor).create((-5000, -5000, 10000, 10000), 'Core_G')
+    # Expand a2 separately isn't needed; make editor active under a1 work_session too!
+    session = editor.work_sessions.start(a1, 'agent-guard', expected_revision=editor.w.revision)
+    editor.scope_id = a1
+    tpl = prof.guard_templates[0]
+
+    # Guard #1 inside region
+    with editor.work_sessions.actor(session.id, expected_revision=editor.w.revision, expected_pose_revision=session.pose_revision):
+        u1 = adapter.guard_preview(editor, bbox=((500, 500), (2500, 2500)), template=tpl, net_intent='VDD')
+    # Consecutive Guard #2 WITHOUT syncing to Virtuoso -> no temporary guide sync, no SOURCE_CONFLICT!
+    with editor.work_sessions.actor(session.id, expected_revision=editor.w.revision, expected_pose_revision=session.pose_revision):
+        u2 = adapter.guard_preview(editor, bbox=((4000, 500), (6000, 2500)), template=tpl, net_intent='VSS')
+
+    assert [op.uid for op in editor.w.operations] == [u1, u2]
+    assert set(editor.w.guard_previews) == {u1, u2}
+    assert all(not c.startswith('COLAYOUT_MVP_LITE_') for c in fake.guide_cells_called)
+
+    # Human concurrently edits an outside-region wire + route in Virtuoso WITHOUT CoLayout pulling first -> Guard #3 still works!
+    main_cv = fake.cells[(snap.library, snap.cell)]
+    ext_seg = Object(
+        uid='ext-guard-co-seg',
+        native_id='nat:ext_gc',
+        kind='pathSeg',
+        bbox=((22000, 2000), (24000, 2000)),
+        shape=Shape(kind='pathSeg', lpp=('M1', 'drawing'), points=((22000, 2000), (24000, 2000)), width=200, net_intent='EXT1'),
+        properties=[['colayoutObjectId', 'string', ['string', 'ext-guard-co-seg']], ['colayoutNetIntent', 'string', ['string', 'EXT1']]],
+        observed_net='EXT1',
+        route_uid='r-ext-g',
+    )
+    fake.cells[(snap.library, snap.cell)] = main_cv.model_copy(
+        update={
+            'objects': {**main_cv.objects, 'ext-guard-co-seg': ext_seg},
+            'routes': {'r-ext-g': NativeRoute(uid='r-ext-g', members=('ext-guard-co-seg',), status='normal', net='EXT1')},
+            'opaque_counts': {**main_cv.opaque_counts, 'routes': 1},
+            'counter': '2',
+        }
+    )
+    fake.current = fake.cells[(snap.library, snap.cell)]
+    with editor.work_sessions.actor(session.id, expected_revision=editor.w.revision, expected_pose_revision=session.pose_revision):
+        u3 = adapter.guard_preview(editor, bbox=((4000, 4000), (6000, 6000)), template=tpl, net_intent='VDD')
+    assert [op.uid for op in editor.w.operations] == [u1, u2, u3]
+    assert set(editor.w.guard_previews) == {u1, u2, u3}
+
+    # Intruding edit inside region still blocks guard_preview with VIRTUOSO_EDIT_IN_REGION
+    bad_cv = fake.cells[(snap.library, snap.cell)]
+    fake.cells[(snap.library, snap.cell)] = bad_cv.model_copy(
+        update={
+            'objects': {**bad_cv.objects, 'session:bad-g': _rect_obj('session:bad-g', -1000, -1000, 0, 0, missing_uid=True)},
+            'counter': '3',
+        }
+    )
+    fake.current = fake.cells[(snap.library, snap.cell)]
+    with pytest.raises(LiteError) as err_g:
+        with editor.work_sessions.actor(session.id, expected_revision=editor.w.revision, expected_pose_revision=session.pose_revision):
+            adapter.guard_preview(editor, bbox=((500, 4000), (2500, 6000)), template=tpl, net_intent='VDD')
+    assert err_g.value.code == 'VIRTUOSO_EDIT_IN_REGION'

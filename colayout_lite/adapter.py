@@ -307,6 +307,31 @@ class Adapter:
         self.save(result)
         return result, p
 
+    _PREPARE_RECOVERABLE_ERRORS = frozenset(
+        {
+            "DUPLICATE_ROUTE_ID",
+            "DUPLICATE_ROUTE_MEMBERSHIP",
+            "ROUTE_MEMBER_MISMATCH",
+            "ROUTE_OWNER_MISMATCH",
+            "DUPLICATE_FIGGROUP_ID",
+        }
+    )
+
+    def _read_cooperative_source(self, library: str, cell: str):
+        """Read Virtuoso snapshot, auto-preparing duplicate route/group IDs after GUI splits."""
+        try:
+            return self.read(library, cell)
+        except LiteError as exc:
+            if exc.code not in self._PREPARE_RECOVERABLE_ERRORS:
+                raise
+            from .cooperative_sync import translate_native_unsaved_error
+
+            try:
+                self.native.call("ltPrepare", library, cell, uuid4().hex)
+            except LiteError as prep_exc:
+                raise translate_native_unsaved_error(prep_exc) from prep_exc
+            return self.read(library, cell)
+
     @serialized_adapter
     def sync_region_guides(self, w: Workspace) -> dict:
         """Draw or update non-fabricating OperationRegion warning guides in Virtuoso."""
@@ -314,6 +339,8 @@ class Adapter:
 
         if not w.baseline.library or not w.baseline.cell or w.validation_only:
             return {"synced": False, "reason": "unconfigured"}
+        if w.baseline.cell.startswith("COLAYOUT_MVP_LITE_"):
+            return {"synced": False, "reason": "temporary"}
         guides = build_region_guides(w)
         reply = self.native.call(
             "ltSyncRegionGuides", w.baseline.library, w.baseline.cell, guides
@@ -342,7 +369,7 @@ class Adapter:
         )
 
         self._require_settled(w)
-        current, profile = self.read(w.baseline.library, w.baseline.cell)
+        current, profile = self._read_cooperative_source(w.baseline.library, w.baseline.cell)
         analyze_virtuoso_delta(w, current, profile)
         if needs_native_prepare(current):
             try:
@@ -556,7 +583,7 @@ class Adapter:
                 "RECONCILE_BEFORE_RETRY",
                 "该请求有未完成的持久记录，先核对服务器实际状态。",
             )
-        current, profile = self.read(w.baseline.library, w.baseline.cell)
+        current, profile = self._read_cooperative_source(w.baseline.library, w.baseline.cell)
         fast_path = scope_region_ids is None and exclude_region_ids is None
         if fast_path:
             try:
@@ -731,7 +758,12 @@ class Adapter:
                 except Exception as release_error:
                     record["resource_release_error"] = str(release_error)
                     journal.write(record)
-                if result.local_data.regions and getattr(self.native, "config_path", None) is not None:
+                if (
+                    result.local_data.regions
+                    and not result.validation_only
+                    and not current.cell.startswith("COLAYOUT_MVP_LITE_")
+                    and getattr(self.native, "config_path", None) is not None
+                ):
                     try:
                         self.sync_region_guides(result)
                     except Exception as guide_err:
@@ -905,16 +937,42 @@ class Adapter:
             from .mpp_recipe import native_templates
             if template not in native_templates(editor.profile):
                 raise LiteError("GUARD_SAMPLE_REQUIRED", "双排模板需先从用户样例建立已验证配方。")
-        current, _ = self.read(w.baseline.library, w.baseline.cell)
-        require_unchanged(w, current)
-        factory=self.create_validation_workspace if w.validation_only else self.create_workspace
+        current, current_profile = self._read_cooperative_source(
+            w.baseline.library, w.baseline.cell
+        )
+        if w.validation_only:
+            require_unchanged(w, current)
+            rebased_w = w
+        elif current.dirty or not same_snapshot(w.baseline, current):
+            from .cooperative_sync import (
+                analyze_virtuoso_delta,
+                needs_native_prepare,
+                rebase_workspace_onto_virtuoso,
+                translate_native_unsaved_error,
+            )
+
+            analyze_virtuoso_delta(w, current, current_profile)
+            if needs_native_prepare(current):
+                try:
+                    self.native.call(
+                        "ltPrepare", w.baseline.library, w.baseline.cell, uuid4().hex
+                    )
+                except LiteError as exc:
+                    raise translate_native_unsaved_error(exc) from exc
+                current, current_profile = self.read(w.baseline.library, w.baseline.cell)
+            rebased_w, _, _, _ = rebase_workspace_onto_virtuoso(
+                w, current, current_profile
+            )
+        else:
+            rebased_w = w
+        factory=self.create_validation_workspace if rebased_w.validation_only else self.create_workspace
         temporary, profile = factory(
             current.library, current.cell, label="PREVIEW"
         )
         progress('准备当前版图副本…')
-        if w.operations:
+        if rebased_w.operations:
             from .clone_draft import bind
-            temporary = bind(w,temporary)
+            temporary = bind(rebased_w,temporary)
             temporary = self.commit(temporary)
         uid = str(uuid4())
         spec = (
