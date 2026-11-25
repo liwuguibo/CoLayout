@@ -28,6 +28,31 @@ This sanitized reference workflow describes how to build a CPU-friendly parasiti
 | **3. Model training** | Cloud GPU | `train_colab_geograph.py` | `rc_dataset.json` (optionally `.gz`) | Pure-NumPy weights `geograph_rc.npz` |
 | **4. Inference and evaluation** | Local CPU + authorized remote check | `colayout_lite/parasitic_nn/model.py`, `verify_blind_gds_vs_pex.py` | `RectangleElement` list and golden PEX | RC estimates, accuracy and latency measurements |
 
+## File roles and handoffs
+
+### External training workspace
+
+| File | Purpose and handoff |
+|---|---|
+| `generate_tiled_gds.py` | Generates reproducible planar, via, perturbation-pair and dense-interconnect scenarios with `TiledGDSGenerator`. Resolves 3D connectivity before assigning pin labels, writes binary GDSII plus a CDL port list, and returns per-tile geometry/scenario/pair metadata for persistence as `_meta.pkl`. It does not run PEX. |
+| `build_training_dataset.py` | Orchestrates stages A/B/C. Stage A calls the generator and saves metadata; stage B calls the remote runner; stage C parses golden capacitances, selects each tile's vertical window, extracts graph features, and joins geometry with `gold_c_tot`, `gold_c_gnd`, `gold_c_cpl` and paired-tile IDs in JSON. |
+| `remote_xrc_runner.py` | Contains the authorized SSH/SCP and Calibre LVS/xRC batch boundary, returning combined `net.dist`/`.pxi` text. Its parser also normalizes SPICE units and fractured node names into fF-valued total, ground and pairwise coupling labels. Server, executable and deck settings must remain private configuration, not published literals. |
+| `train_colab_geograph.py` | Defines the PyTorch `GeoGraphResidualNet` corresponding to the NumPy inference engine: node/edge encoders, two degree-normalized residual message-passing blocks and bounded physics-aware readouts. Builds training/validation super-graphs, optimizes absolute and incremental capacitance losses, selects the best validation checkpoint, and exports `arch_version=3` NumPy tensors plus normalization statistics. |
+| `verify_blind_gds_vs_pex.py` | Generates a separately seeded blind set, optionally runs authorized remote PEX, and evaluates the exported weights without training on those tiles. Reports per-net and incremental capacitance errors, via-drop net-merging behavior and CPU latency, with per-tile JSON details. |
+| `pdk_openems.py` | Reserved for an optional openEMS/FDTD cross-check of the private stackup. It is not part of the supplied CoLayout workflow and is not needed for PEX-labelled surrogate training. |
+
+### CoLayout modules
+
+| File | Purpose |
+|---|---|
+| `colayout_lite/parasitic_nn/geometry_graph.py` | Defines rectangle/via geometry and stackup descriptors, local spatial-window selection, graph construction and $E(2)$-invariant features. |
+| `colayout_lite/parasitic_nn/via_connectivity.py` | Resolves planar/via connectivity with Union-Find, merges physically bridged nets and forms via clusters for graph features and 3D resistance evaluation. |
+| `colayout_lite/parasitic_nn/model.py` | Loads and SHA-256-checks NumPy weights, performs whole-window and before/after incremental inference, and reports net/element capacitance and resistance results. |
+| `colayout_lite/parasitic_nn/analytical_resistance.py` | Computes temperature-aware planar and via resistance through the resolved 3D network; this is analytical, not a learned PEX substitute. |
+| `colayout_lite/parasitic_nn/parasitic_partition.py` | Provides optional Core-Halo partitioning for long interconnect evaluation, including seam handling and zero-double-count capacitance attribution. |
+
+The handoff contract is the graph record schema and NumPy weight keys, not private PDK paths. When changing either side, verify architecture version, feature dimensions, tensor keys/shapes and normalization statistics together.
+
 ## Stage 1: PDK stackup extraction and local modeling
 
 1. Extract process files from your licensed PDK directory (`<USER>@<EDA_SERVER>:<PDK_ROOT>/`) into a local Git-ignored directory such as `pdk_private/`:

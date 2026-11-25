@@ -28,6 +28,31 @@
 | **3. 模型训练** | 云端 GPU | `train_colab_geograph.py` | `rc_dataset.json`（可选用 `.gz`） | 纯 NumPy 权重 `geograph_rc.npz` |
 | **4. 推理与评估** | 本地 CPU + 授权远程核对 | `colayout_lite/parasitic_nn/model.py`、`verify_blind_gds_vs_pex.py` | `RectangleElement` 列表和 golden PEX | RC 估算、精度和延迟测量 |
 
+## 文件职责与交接关系
+
+### 外部训练工作区
+
+| 文件 | 用途与交接关系 |
+|---|---|
+| `generate_tiled_gds.py` | 通过 `TiledGDSGenerator` 生成可复现的平面、过孔、前后修改样本对和密集互连场景。在分配 PIN 标签前解析 3D 连接，输出二进制 GDSII 和 CDL 端口列表，并返回每个拼块的几何、场景和配对元数据，以保存为 `_meta.pkl`。本文件不执行 PEX。 |
+| `build_training_dataset.py` | 编排 A/B/C 三阶段：A 调用生成器并保存元数据；B 调用远程执行器；C 解析 golden 电容、选择各拼块垂直窗口、提取图特征，再将几何与 `gold_c_tot`、`gold_c_gnd`、`gold_c_cpl` 和配对拼块 ID 联合写入 JSON。 |
+| `remote_xrc_runner.py` | 提供授权的 SSH/SCP 与 Calibre LVS/xRC 批处理边界，返回合并的 `net.dist`/`.pxi` 文本。其解析器还归一化 SPICE 单位和断裂子节点名，生成以 fF 表示的总电容、地电容和成对耦合标签。服务器、可执行文件和 deck 设置必须留在私有配置中，不能作为字面量公开。 |
+| `train_colab_geograph.py` | 定义与 NumPy 推理引擎对应的 PyTorch `GeoGraphResidualNet`：节点/边编码器、两个按度数归一化的残差消息传递块，以及受物理约束的有界读出。构建训练/验证超图，优化绝对与增量电容损失，选择最佳验证检查点，并导出 `arch_version=3` 的 NumPy 张量和归一化统计。 |
+| `verify_blind_gds_vs_pex.py` | 使用独立随机种子生成盲测集，可选执行授权的远程 PEX，并在不使用这些拼块训练的前提下评估导出的权重。报告逐网络与增量电容误差、落孔并网行为和 CPU 延迟，保存逐拼块 JSON 明细。 |
+| `pdk_openems.py` | 保留用于私有层叠的可选 openEMS/FDTD 交叉核对。它不属于当前提供的 CoLayout 工作流，PEX 标签代理训练也不依赖它。 |
+
+### CoLayout 模块
+
+| 文件 | 用途 |
+|---|---|
+| `colayout_lite/parasitic_nn/geometry_graph.py` | 定义矩形/过孔几何与层叠描述，负责局部空间窗口选择、图构建和 $E(2)$ 不变特征。 |
+| `colayout_lite/parasitic_nn/via_connectivity.py` | 使用 Union-Find 解析平面/过孔连接，合并物理桥接网络，并生成用于图特征和 3D 电阻评估的过孔簇。 |
+| `colayout_lite/parasitic_nn/model.py` | 加载并校验 NumPy 权重 SHA-256，执行整窗口和修改前后增量推理，报告网络/元件级电容与电阻结果。 |
+| `colayout_lite/parasitic_nn/analytical_resistance.py` | 在解析后的 3D 网络上计算温度相关的平面和过孔电阻；这是解析计算，不是学习得到的 PEX 替代品。 |
+| `colayout_lite/parasitic_nn/parasitic_partition.py` | 为长互连评估提供可选 Core-Halo 分区，包括拼缝处理和零重复计数的电容归属。 |
+
+两侧的交接契约是图记录 schema 和 NumPy 权重键，而不是私有 PDK 路径。修改任一侧时，应共同核对架构版本、特征维度、张量键/形状和归一化统计。
+
 ## 阶段 1：PDK 层叠提取与本地建模
 
 1. 从合法授权的 PDK 目录（`<USER>@<EDA_SERVER>:<PDK_ROOT>/`）提取工艺文件到本地已被 Git 忽略的目录，例如 `pdk_private/`：
