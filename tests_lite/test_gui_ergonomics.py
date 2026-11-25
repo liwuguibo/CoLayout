@@ -163,7 +163,11 @@ def test_studio_launch_full_canvas_wire_popover_and_parasitic_tabbing(
         assert not win.parasitics.dock.isHidden()
         assert win.parasitics.dock.property('studioTool') is True
         assert actions['parasitics'].isChecked()
-        assert capture_camera(win.canvas) == cam_before
+        cam_after = capture_camera(win.canvas)
+        assert cam_after.transform == cam_before.transform
+        assert cam_after.bounds == cam_before.bounds
+        assert cam_after.center == cam_before.center
+        assert cam_after.scroll == cam_before.scroll
 
         actions['parasitics'].trigger()
         QApplication.processEvents()
