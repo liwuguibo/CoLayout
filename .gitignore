@@ -11,11 +11,20 @@ artifacts/
 # Process libraries, PDKs, native rule decks, layouts and RC weights
 pdk/
 pdks/
+pdk_private/
 process-library/
 process-libraries/
 *.colayout-process.json
 *.pdk
+*.ircx
+*.proc
+*.layermap
 *.npz
+*.pxi
+*.cdl
+*_meta.pkl
+rc_dataset.json*
+net.dist
 *.drc
 *.svrf
 *.tvf
