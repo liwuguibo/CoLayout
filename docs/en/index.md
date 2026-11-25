@@ -22,6 +22,7 @@ For first use, read Setup and preparation, then Using CoLayout. Continue to the 
 | [Architecture](architecture.md) | Diagram, module responsibilities, hierarchy, concurrency and correctness |
 | [Source implementation guide](internals.md) | Call chains, data/state models, worker adoption, recovery and existing test map |
 | [Development](development.md) | Environment, tests, troubleshooting and release validation |
+| [Geo-Graph training workflow](geograph-training-workflow.md) | Sanitized PDK/PEX dataset workflow, external training tools and NumPy inference |
 | [Agent API](api.md) | Tool boundaries, cooperative Virtuoso merge, on-demand RC inspection, request identity and async jobs |
 
 ## Contribute and manage dependencies

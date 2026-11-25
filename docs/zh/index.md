@@ -22,6 +22,7 @@
 | [软件架构](architecture.md) | 架构图、模块职责、层次、并发与数据正确性 |
 | [源码实现详解](internals.md) | 调用链、数据与状态模型、后台采用、恢复和测试对应关系 |
 | [开发与验证](development.md) | 环境、测试、排错和发布验证 |
+| [Geo-Graph 训练工作流](geograph-training-workflow.md) | 脱敏 PDK/PEX 数据集流程、外部训练工具与 NumPy 推理 |
 | [Agent API](api.md) | 工具边界、空间协同合并、按需 RC 检查、请求身份与异步任务 |
 
 ## 参与项目与依赖
