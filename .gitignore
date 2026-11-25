@@ -7,6 +7,26 @@
 config/*
 !config/*.example.json
 artifacts/
+
+# Process libraries, PDKs, native rule decks, layouts and RC weights
+pdk/
+pdks/
+process-library/
+process-libraries/
+*.colayout-process.json
+*.pdk
+*.npz
+*.drc
+*.svrf
+*.tvf
+*.tf
+*.tech
+*.rules
+*.gds
+*.oas
+*.oa
+*.db
+
 layout-agents/
 __pycache__/
 *.py[cod]
