@@ -61,6 +61,51 @@ class Canvas(PreviewView):
         if not value and hasattr(self, 'box_capture'):
             self.box_capture.cancel()
 
+    def _active_crosshair(self) -> bool:
+        w = self.window()
+        return bool(
+            self.region_select
+            or getattr(getattr(w, 'ruler', None), 'active', False)
+            or getattr(getattr(getattr(w, 'wire_panel', None), 'capture', None), 'active', False)
+            or getattr(getattr(getattr(w, 'guard_panel', None), 'capture', None), 'active', False)
+        )
+
+    def _end_pan(self):
+        was_panning = (
+            self._pan_last is not None
+            or self._pan_button is not None
+            or self._pan_started
+        )
+        self._pan_last = None
+        self._pan_button = None
+        self._pan_started = False
+        if was_panning:
+            if self._active_crosshair():
+                self.setCursor(Qt.CursorShape.CrossCursor)
+            else:
+                self.unsetCursor()
+
+    def _handle_modal_right_click(self) -> bool:
+        w = self.window()
+        wire_capture = getattr(getattr(w, 'wire_panel', None), 'capture', None)
+        if wire_capture is not None and getattr(wire_capture, 'active', False):
+            wire_capture.right_click()
+            return True
+        guard_capture = getattr(getattr(w, 'guard_panel', None), 'capture', None)
+        if guard_capture is not None and getattr(guard_capture, 'active', False):
+            guard_capture.right_click()
+            return True
+        ruler = getattr(w, 'ruler', None)
+        if ruler is not None and getattr(ruler, 'active', False):
+            ruler.right_click()
+            return True
+        if self.region_select:
+            self.region_select = False
+            self.region_cancelled.emit()
+            self.unsetCursor()
+            return True
+        return False
+
     def fitInView(self, rect, mode=Qt.AspectRatioMode.IgnoreAspectRatio):
         if self.selection_ui:
             self.selection_ui.cancel()
@@ -74,9 +119,6 @@ class Canvas(PreviewView):
             self.box_capture.refresh()
 
     def wheelEvent(self, event):
-        delta = event.angleDelta().y() or event.pixelDelta().y()
-        if not delta:
-            return
         if self._preview_press:
             self._preview_press = False
             self._normal_press = None
@@ -86,11 +128,38 @@ class Canvas(PreviewView):
             self.human.cancel()
             self._normal_press = None
         if event.modifiers() == self.peek_modifiers:
-            level = max(0, min(2, self.blackbox_peek + (-1 if delta > 0 else 1)))
-            if level != self.blackbox_peek:
-                self.blackbox_peek = level
-                self.peek_changed.emit(level)
-            event.accept()
+            raw = event.angleDelta().y() or event.pixelDelta().y() or event.angleDelta().x() or event.pixelDelta().x()
+            if raw:
+                level = max(0, min(2, self.blackbox_peek + (-1 if raw > 0 else 1)))
+                if level != self.blackbox_peek:
+                    self.blackbox_peek = level
+                    self.peek_changed.emit(level)
+                event.accept()
+                return
+        if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+            from ..camera import pan_by
+
+            raw = (
+                event.angleDelta().y()
+                or event.angleDelta().x()
+                or event.pixelDelta().y()
+                or event.pixelDelta().x()
+            )
+            if raw:
+                pan_by(
+                    self,
+                    QPointF(
+                        (max(-1200, min(1200, raw)) / 120.0)
+                        * max(32.0, self.viewport().width() * 0.08),
+                        0.0,
+                    ),
+                )
+                self.box_capture.update(event.position())
+                self.view_changed.emit()
+                event.accept()
+                return
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if not delta:
             return
         from ..camera import zoom_at
 
@@ -102,17 +171,28 @@ class Canvas(PreviewView):
 
     def mousePressEvent(self, event):
         if event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
+            if self._pan_last is not None:
+                if self._pan_button is not None and event.buttons() & self._pan_button:
+                    event.accept()
+                    return
+                self._end_pan()
+            if event.button() == Qt.MouseButton.RightButton and self.box_capture.active:
+                self.box_capture.cancel()
+                self._suppress_context_menu = True
+                event.accept()
+                return
             self._preview_press = False
+            self._normal_press = None
             if self.selection_ui:
                 self.selection_ui.cancel()
             if self.human:
                 self.human.cancel()
-            self._normal_press = None
             self._pan_last = QPointF(event.position())
             self._pan_button = event.button()
             self._pan_started = event.button() == Qt.MouseButton.MiddleButton
             self._suppress_context_menu = False
-            if self._pan_started:self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            if self._pan_started:
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if self.region_select and event.button() == Qt.MouseButton.LeftButton:
@@ -140,19 +220,23 @@ class Canvas(PreviewView):
         pt = self.mapToScene(event.position().toPoint())
         self.cursor_moved.emit(pt.x(), -pt.y())
         if self._pan_last is not None:
-            from ..camera import pan_by
+            if self._pan_button is None or not (event.buttons() & self._pan_button):
+                self._end_pan()
+            else:
+                from ..camera import pan_by
 
-            if not self._pan_started:
-                if (event.position()-self._pan_last).manhattanLength()<QApplication.startDragDistance():
-                    event.accept();return
-                self._pan_started=True
-                self._suppress_context_menu=True
-                self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            pan_by(self, event.position() - self._pan_last)
-            self._pan_last = QPointF(event.position())
-            self.view_changed.emit()
-            event.accept()
-            return
+                if not self._pan_started:
+                    if (event.position() - self._pan_last).manhattanLength() < QApplication.startDragDistance():
+                        event.accept()
+                        return
+                    self._pan_started = True
+                    self._suppress_context_menu = True
+                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                pan_by(self, event.position() - self._pan_last)
+                self._pan_last = QPointF(event.position())
+                self.view_changed.emit()
+                event.accept()
+                return
         if self.box_capture.active:
             self.box_capture.update(event.position())
             event.accept()
@@ -169,15 +253,21 @@ class Canvas(PreviewView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == self._pan_button and self._pan_last is not None:
-            self._pan_last = None
-            self._pan_button = None
-            ruler_active = getattr(getattr(self.window(), 'ruler', None), 'active', False)
-            wire_active = getattr(getattr(getattr(self.window(), 'wire_panel', None), 'capture', None), 'active', False)
-            if self.region_select or ruler_active or wire_active:
-                self.setCursor(Qt.CursorShape.CrossCursor)
-            else:
-                self.unsetCursor()
+        if self._pan_last is not None and (
+            event.button() == self._pan_button or not (event.buttons() & self._pan_button)
+        ):
+            is_right_click = (
+                event.button() == Qt.MouseButton.RightButton
+                and self._pan_button == Qt.MouseButton.RightButton
+                and not self._pan_started
+            )
+            self._end_pan()
+            if is_right_click:
+                handled = self._handle_modal_right_click()
+                if handled:
+                    self._suppress_context_menu = True
+                else:
+                    self.customContextMenuRequested.emit(event.position().toPoint())
             event.accept()
             return
         if event.button() != Qt.MouseButton.LeftButton:
@@ -224,25 +314,86 @@ class Canvas(PreviewView):
         super().leaveEvent(event)
 
     def viewportEvent(self, event):
-        # CustomContextMenu dispatch bypasses contextMenuEvent, so consume the
-        # gesture's OS menu event before Qt emits customContextMenuRequested.
-        if (event.type()==QEvent.Type.ContextMenu and
-                event.reason()==QContextMenuEvent.Reason.Mouse and self._suppress_context_menu):
-            self._suppress_context_menu=False
-            event.accept();return True
+        if event.type() == QEvent.Type.ContextMenu:
+            reason = event.reason()
+            if reason == QContextMenuEvent.Reason.Mouse:
+                # Always consume the native mouse ContextMenu event; the single
+                # intentional menu emission is handled in mouseReleaseEvent so
+                # Linux/X11 and Windows behave identically.
+                self._suppress_context_menu = False
+                event.accept()
+                return True
+            if reason == QContextMenuEvent.Reason.Keyboard and self._active_crosshair():
+                event.accept()
+                return True
+        if event.type() in (
+            QEvent.Type.WindowDeactivate,
+            QEvent.Type.UngrabMouse,
+            QEvent.Type.ApplicationDeactivate,
+        ):
+            if self._pan_last is not None:
+                self._end_pan()
         return super().viewportEvent(event)
 
+    def event(self, event):
+        if event.type() in (
+            QEvent.Type.WindowDeactivate,
+            QEvent.Type.UngrabMouse,
+            QEvent.Type.ApplicationDeactivate,
+            QEvent.Type.FocusOut,
+        ):
+            if self._pan_last is not None:
+                self._end_pan()
+        return super().event(event)
+
+    def focusOutEvent(self, event):
+        if self._pan_last is not None:
+            self._end_pan()
+        super().focusOutEvent(event)
+
     def keyPressEvent(self, event):
+        self._end_pan()
         if event.key() == Qt.Key.Key_Escape and self.region_select:
             self.region_select = False
             self.region_cancelled.emit()
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.unsetCursor()
             event.accept()
             return
         if event.key() == Qt.Key.Key_Escape:
             self._normal_press = None
             self._preview_press = False
             self.inspection_clear.emit()
+            event.accept()
+            return
+        if event.key() in (
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+        ):
+            from ..camera import pan_by
+
+            ratio = (
+                0.25
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                else 0.10
+            )
+            step = max(
+                24.0,
+                min(self.viewport().width(), self.viewport().height()) * ratio,
+            )
+            if event.key() == Qt.Key.Key_Right:
+                pan_by(self, QPointF(-step, 0.0))
+            elif event.key() == Qt.Key.Key_Left:
+                pan_by(self, QPointF(step, 0.0))
+            elif event.key() == Qt.Key.Key_Up:
+                pan_by(self, QPointF(0.0, step))
+            else:  # Down
+                pan_by(self, QPointF(0.0, -step))
+            self.box_capture.refresh()
+            self.view_changed.emit()
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     def mouseDoubleClickEvent(self, event):

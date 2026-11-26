@@ -197,6 +197,7 @@ class StudioShell(QObject):
         self.check_action(edit, '允许拖动金属线和过孔', self.window.selection_ui.move_box)
 
         view = self.menu_button('视图', 'view')
+        self.check_action(view, '显示实例内部', self.window.internal)
         self.check_action(view, '显示过孔', self.window.cuts)
         self.check_action(view, '原生纹理', self.window.pattern)
         self.check_action(view, '选择对象时 DIM', self.window.selection_ui.dim_box)
@@ -378,9 +379,9 @@ class StudioShell(QObject):
         row.addWidget(self.conductor_toggle)
 
         self.selection_mode = QComboBox()
-        self.selection_mode.addItems(['完整包含', '相交即选'])
+        self.selection_mode.addItems(['自动（左包含/右相交）', '完整包含', '相交即选'])
         self.selection_mode.setToolTip('框选方式')
-        self.selection_mode.setMaximumWidth(104)
+        self.selection_mode.setMaximumWidth(162)
         self.selection_mode.setMaximumHeight(25)
         original = self.window.selection_ui.mode_combo
         self.selection_mode.setCurrentIndex(original.currentIndex())

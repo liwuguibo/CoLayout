@@ -40,7 +40,7 @@ Pour avoids every same-layer object not explicitly selected as a target and resp
 
 ## On-demand local RC parasitic evaluation
 
-The top-level **画线** button opens a nearby tool popover that automatically dismisses once canvas wire capture starts so the viewport remains unobstructed. Wire capture previews uncommitted orthogonal L-bend or single-segment drafts as points are added: press `Space` to flip between horizontal-first L, vertical-first L and single-axis orthogonal posture, press `[` / `]` (or `PageDown` / `PageUp` ) to step down/up the metal stack with automatic per-layer default width and standard-via matching (showing a live via enclosure preview at the turn anchor), and right-click to undo the previous step. Enter/double-click commits once through the existing editor transaction, and Esc discards the draft. It does not require whole-region connectivity or DRC success before allowing incremental routing; existing permission, revision and geometry constraints still apply.
+The top-level **画线** button opens a nearby tool popover that automatically dismisses once canvas wire capture starts so the viewport remains unobstructed. Wire capture previews uncommitted orthogonal L-bend or single-segment drafts as points are added: press `Space` to flip between horizontal-first L, vertical-first L and single-axis orthogonal posture, press `[` / `]` (or `PageDown` / `PageUp` ) to step down/up the metal stack with automatic per-layer default width and standard-via matching (showing a live via enclosure preview at the turn anchor), and press `Backspace` or right-click to undo the previous step. Middle- or right-drag pans the canvas temporarily and lets you keep placing points on release. Enter/double-click commits once through the existing editor transaction, and Esc discards the draft. It does not require whole-region connectivity or DRC success before allowing incremental routing; existing permission, revision and geometry constraints still apply.
 
 **No unsolicited background computation**: Interactive wire capture (`WireCapture` / `WirePanel`), mouse dragging (`MouseEdit`), autoroute browsing, and commits perform **zero continuous or background RC estimation**, preventing local CPU overhead during routine layout editing.
 
@@ -55,7 +55,8 @@ With a reviewed RC model (analytic coefficients or an optional `surrogate` confi
 ## Layer palette, ruler and collaboration helpers
 
 - **Layer palette (LSW)**: Toggle **图层** in the top bar to open the compact left-column layer palette showing colour swatches for metals, via cuts and device layers. Checkboxes hide/show layers; single-clicking a writable layer syncs the active layer in Wire / Rectangle / Pour tools; **double-clicking a row enters Solo mode** (retaining connecting via cuts for metals), and double-clicking again or clicking **退出独显** restores the previous visibility state. Layer hiding is strictly view-only: hidden layers do not intercept clicks or marquee selection and never affect DRC, sync or Agent snapshots.
-- **Interactive ruler**: Click **标尺** or press `K` to measure distances snapped to the manufacturing grid and nearby visible geometry edges/corners (hold `Shift` for grid-only snap). Press `Space` to toggle orthogonal vs. diagonal ΔX/ΔY measurement, click two points to place a ruler, and press `Shift+K` to clear rulers in the current scope. Rulers are session-local viewport overlays and never mutate workspace history.
+- **Interactive ruler**: Click **标尺** or press `K` to measure distances snapped to the manufacturing grid and nearby visible geometry edges/corners (hold `Shift` for grid-only snap). Press `Space` to toggle orthogonal vs. diagonal ΔX/ΔY measurement, click two points to place a ruler; after the first ruler is placed the capture stays active so you can keep placing additional rulers, and right-click, `Esc` or `K` exits capture mode. Press `Shift+K` to clear rulers in the current scope. Rulers are session-local viewport overlays and never mutate workspace history.
+- **Marquee selection**: The default mode is **Auto (left-to-right contains / right-to-left intersects)**: dragging left-to-right only selects objects fully enclosed by the box, while dragging right-to-left selects anything intersecting the box. Use the toolbar drop-down to switch to fixed **Contains** or **Intersects**. Hold `Shift` while clicking or dragging to add or toggle selection; `Esc` clears the current selection.
 - **Footer live readout and wire lock pill**: The right side of the footer displays live grid-snapped micron coordinates together with relative `Δ(ΔX, ΔY)` and length/box dimensions during active wire, ruler, box or drag gestures. The **锁线 / 移线** pill toggles directly between inspect-safe conductor lock and movable wires/vias.
 - **Copy task context**: Use **编辑 → 复制任务上下文** (or right-click an operation region) to copy a structured summary of the target region ID, bounds, interface PINs and current-scope markups/keepouts to the clipboard for pasting into a layout Agent conversation.
 
@@ -96,9 +97,12 @@ For an unknown request outcome, preserve the original request ID/body and pendin
 | Default | Action |
 |---|---|
 | F | Fit the view |
-| K / Shift+K | Toggle ruler capture / clear rulers in current scope |
+| Arrow keys | Pan the canvas view (`Shift` + arrow keys for larger steps) |
+| Shift + wheel | Pan the canvas horizontally |
+| K / Shift+K | Toggle continuous ruler capture / clear rulers in current scope |
 | Space (in wire or ruler) | Flip wire L-bend posture / toggle orthogonal vs. diagonal ruler |
 | [ / ] (in wire) | Step down / up the metal stack and auto-match standard via |
+| Backspace or right-click (in wire) | Undo the previous wire step (or exit when empty) |
 | Ctrl+E | Return to the parent level |
 | Ctrl+R | Rotate selected supported objects by 90° |
 | Ctrl+Z or U | Undo |

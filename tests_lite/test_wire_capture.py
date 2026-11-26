@@ -191,3 +191,27 @@ def test_lbend_posture_flip_layer_step_and_right_click_undo(app, profile, monkey
         assert len(host.editor._undo) == 1
     finally:
         host.close()
+
+
+def test_wire_capture_undo_step_and_right_click_api(app, profile, monkeypatch):
+    host = prepare_wire_host(profile, monkeypatch)
+    panel = host.wire_panel
+    try:
+        panel.start(True)
+        QTest.mouseClick(host.canvas.viewport(), Qt.MouseButton.LeftButton, pos=canvas_point(host, 0, 0))
+        QTest.mouseClick(host.canvas.viewport(), Qt.MouseButton.LeftButton, pos=canvas_point(host, 10000, 0))
+        assert len(panel.capture.draft.points) == 2
+
+        # undo_step pops the last committed anchor
+        assert panel.capture.undo_step()
+        assert len(panel.capture.draft.points) == 1
+        assert panel.capture.active
+
+        # right_click with anchors left calls undo_step, with empty draft calls cancel
+        panel.capture.right_click()
+        assert len(panel.capture.draft.points) == 0
+        assert panel.capture.active
+        panel.capture.right_click()
+        assert not panel.capture.active
+    finally:
+        host.close()

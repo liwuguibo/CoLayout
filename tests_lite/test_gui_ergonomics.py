@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from colayout_lite.actions import Actions
 from colayout_lite.camera import capture as capture_camera
@@ -177,6 +177,28 @@ def test_studio_launch_full_canvas_wire_popover_and_parasitic_tabbing(
         win.close()
 
 
+def test_wire_popover_click_through_first_point(
+    app, tmp_path, profile
+):
+    win, _, _, _ = make_studio_window(tmp_path, profile)
+    try:
+        actions = win.studio.commands.actions
+        actions['wire'].trigger()
+        QApplication.processEvents()
+        assert win.wire_popup.isVisible()
+        assert not win.wire_panel.capture.active
+
+        # Clicking the canvas directly starts wire capture and drops the first point
+        pos = scene_to_viewport(win, 4000, 4000)
+        QTest.mouseClick(win.canvas.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        QApplication.processEvents()
+        assert not win.wire_popup.isVisible()
+        assert win.wire_panel.capture.active
+        assert len(win.wire_panel.capture.draft.points) >= 1
+    finally:
+        win.close()
+
+
 def test_layer_palette_hide_solo_clickthrough_marquee_and_snapshot_isolation(
     app, tmp_path, profile
 ):
@@ -280,8 +302,9 @@ def test_ruler_tool_shortcuts_scope_isolation_and_zero_workspace_mutation(
             pos=scene_to_viewport(win, 4000, 5000),
         )
         QApplication.processEvents()
-        assert not win.ruler.active
-        assert not actions['ruler'].isChecked()
+        # Continuous ruler mode stays active after placing the first segment
+        assert win.ruler.active
+        assert actions['ruler'].isChecked()
         rulers = win.ruler.current_rulers()
         assert len(rulers) == 1
         assert rulers[0].mode == 'diagonal'
@@ -289,14 +312,111 @@ def test_ruler_tool_shortcuts_scope_isolation_and_zero_workspace_mutation(
         assert abs(rulers[0].p1[0] - 4000) <= 60 and abs(rulers[0].p1[1] - 5000) <= 60
         assert win.editor.w.revision == rev_before and len(win.editor.w.operations) == ops_before
 
+        # Place a second ruler segment without pressing K in between
+        QTest.mouseClick(
+            win.canvas.viewport(),
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier,
+            pos=scene_to_viewport(win, 5000, 1000),
+        )
+        QTest.mouseClick(
+            win.canvas.viewport(),
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier,
+            pos=scene_to_viewport(win, 9000, 3000),
+        )
+        QApplication.processEvents()
+        assert len(win.ruler.current_rulers()) == 2
+
+        # A plain right-click with no active starting point exits ruler mode and does not open a menu
+        QTest.mouseClick(
+            win.canvas.viewport(),
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+            pos=scene_to_viewport(win, 5000, 5000),
+        )
+        QApplication.processEvents()
+        assert not win.ruler.active
+        assert not actions['ruler'].isChecked()
+        assert len(win.ruler.current_rulers()) == 2
+
         # Child scope has isolated ruler list
         win.region_panel._set_scope(reg_id)
         assert win.ruler.current_rulers() == []
         win.region_panel._set_scope(None)
-        assert len(win.ruler.current_rulers()) == 1
+        assert len(win.ruler.current_rulers()) == 2
 
         actions['clear_rulers'].trigger()
         assert win.ruler.current_rulers() == []
+    finally:
+        win.close()
+
+
+def test_middle_button_pan_anti_stick_and_focus_out_cleanup(
+    app, tmp_path, profile
+):
+    win, _, _, _ = make_studio_window(tmp_path, profile)
+    try:
+        from colayout_lite.camera import capture as capture_camera
+
+        cam_before = capture_camera(win.canvas)
+        pos = scene_to_viewport(win, 5000, 5000)
+        # Middle-button press starts pan candidate; immediate move pans the view
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=pos)
+        QApplication.processEvents()
+        assert win.canvas._pan_last is not None
+        assert win.canvas._pan_button == Qt.MouseButton.MiddleButton
+        QTest.mouseMove(win.canvas.viewport(), pos + QPoint(30, 20), delay=-1)
+        QApplication.processEvents()
+        cam_after = capture_camera(win.canvas)
+        assert cam_after.center != cam_before.center
+
+        # Simulate a swallowed MouseButtonRelease: a no-button move heals the state
+        healed_pos = pos + QPoint(40, 30)
+        no_buttons = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(healed_pos),
+            QPointF(healed_pos),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        win.canvas.mouseMoveEvent(no_buttons)
+        QApplication.processEvents()
+        assert win.canvas._pan_last is None
+        assert win.canvas._pan_button is None
+        cam_healed = capture_camera(win.canvas)
+        win.canvas.mouseMoveEvent(no_buttons)
+        QApplication.processEvents()
+        assert capture_camera(win.canvas).center == cam_healed.center
+
+        # A second press while already panning must not overwrite _pan_button
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=pos)
+        QApplication.processEvents()
+        assert win.canvas._pan_button == Qt.MouseButton.MiddleButton
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.RightButton, pos=pos)
+        QApplication.processEvents()
+        assert win.canvas._pan_button == Qt.MouseButton.MiddleButton
+        QTest.mouseRelease(win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=pos)
+        QApplication.processEvents()
+        assert win.canvas._pan_last is None
+
+        # Focus out and window deactivation clean any lingering pan state
+        from PySide6.QtGui import QFocusEvent
+
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=pos)
+        QApplication.processEvents()
+        assert win.canvas._pan_last is not None
+        QApplication.sendEvent(win.canvas, QFocusEvent(QEvent.Type.FocusOut))
+        QApplication.processEvents()
+        assert win.canvas._pan_last is None
+
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=pos)
+        QApplication.processEvents()
+        assert win.canvas._pan_last is not None
+        QApplication.sendEvent(win, QEvent(QEvent.Type.WindowDeactivate))
+        QApplication.processEvents()
+        assert win.canvas._pan_last is None
     finally:
         win.close()
 
@@ -350,5 +470,234 @@ def test_footer_live_coords_conductor_pill_and_copy_task_context(
         win.studio.commands.actions['copy_task_context'].trigger()
         clip_top = QApplication.clipboard().text()
         assert 'amp_core' in clip_top and reg_id in clip_top
+    finally:
+        win.close()
+
+
+def test_wire_modal_right_click_undo_and_right_drag_pan_no_menu(
+    app, tmp_path, profile
+):
+    win, _, _, _ = make_studio_window(tmp_path, profile)
+    real_context_menu = win.human.context_menu
+    menu_calls = []
+    def spy_context_menu(pos):
+        menu_calls.append(pos)
+    win.human.context_menu = spy_context_menu
+    try:
+        actions = win.studio.commands.actions
+        actions['wire'].trigger()
+        win.wire_panel.start(True)
+        QApplication.processEvents()
+        assert win.wire_panel.capture.active
+
+        p0 = scene_to_viewport(win, 4000, 4000)
+        p1 = scene_to_viewport(win, 8000, 4000)
+        QTest.mouseClick(win.canvas.viewport(), Qt.MouseButton.LeftButton, pos=p0)
+        QTest.mouseClick(win.canvas.viewport(), Qt.MouseButton.LeftButton, pos=p1)
+        QApplication.processEvents()
+        assert len(win.wire_panel.capture.draft.points) == 2
+
+        from colayout_lite.camera import capture as capture_camera
+        cam_before = capture_camera(win.canvas)
+
+        # Right-drag over threshold must pan the view, not delete anchors or open a menu
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.RightButton, pos=p0)
+        drag_end = p0 + QPoint(40, 30)
+        QTest.mouseMove(win.canvas.viewport(), drag_end, delay=-1)
+        QApplication.processEvents()
+        assert win.canvas._pan_started
+        QTest.mouseRelease(win.canvas.viewport(), Qt.MouseButton.RightButton, pos=drag_end)
+        QApplication.processEvents()
+        assert capture_camera(win.canvas).center != cam_before.center
+        assert len(win.wire_panel.capture.draft.points) == 2
+        assert not menu_calls
+
+        # A plain right-click undoes the last anchor without opening a menu
+        QTest.mouseClick(win.canvas.viewport(), Qt.MouseButton.RightButton, pos=p1)
+        QApplication.processEvents()
+        assert len(win.wire_panel.capture.draft.points) == 1
+        assert not menu_calls
+    finally:
+        win.human.context_menu = real_context_menu
+        win.close()
+
+
+def test_wire_modal_hotkeys_work_when_focus_leaves_canvas(
+    app, tmp_path, profile
+):
+    win, _, _, _ = make_studio_window(tmp_path, profile)
+    try:
+        actions = win.studio.commands.actions
+        actions['wire'].trigger()
+        win.wire_panel.start(True)
+        QApplication.processEvents()
+        assert win.wire_panel.capture.active
+        assert win.wire_panel.capture.posture == 'hv'
+
+        p0 = scene_to_viewport(win, 4000, 4000)
+        QTest.mouseClick(win.canvas.viewport(), Qt.MouseButton.LeftButton, pos=p0)
+        QApplication.processEvents()
+        assert len(win.wire_panel.capture.draft.points) == 1
+
+        # Open the left layer palette and move focus into its QListWidget away from the canvas
+        win.studio.panel_actions['layers'].setChecked(True)
+        QApplication.processEvents()
+        layer_list = win.studio.layers.list
+        layer_list.setFocus()
+        QApplication.processEvents()
+        assert layer_list not in (win.canvas, win.canvas.viewport())
+
+        from PySide6.QtGui import QKeyEvent
+
+        def send_key(key):
+            target = QApplication.focusWidget()
+            if target is None or target in (win.canvas, win.canvas.viewport()):
+                target = layer_list
+            ev = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+            QApplication.sendEvent(target, ev)
+            QApplication.processEvents()
+
+        # Space cycles posture even though focus is not on the canvas
+        send_key(Qt.Key.Key_Space)
+        assert win.wire_panel.capture.posture == 'vh'
+
+        # ] steps up the metal stack
+        send_key(Qt.Key.Key_BracketRight)
+        assert win.wire_panel.layer.currentData() == 'wire_b'
+
+        # Backspace undoes the last anchor without deleting canvas objects
+        rev_before = win.editor.w.revision
+        send_key(Qt.Key.Key_Backspace)
+        assert len(win.wire_panel.capture.draft.points) == 0
+        assert win.editor.w.revision == rev_before
+
+        # Escape cancels wire capture
+        send_key(Qt.Key.Key_Escape)
+        assert not win.wire_panel.capture.active
+        assert not actions['wire'].isChecked()
+    finally:
+        win.close()
+
+
+def test_auto_marquee_arrow_keys_and_shift_orthogonal_drag(
+    app, tmp_path, profile
+):
+    win, uid_a, uid_b, reg_id = make_studio_window(tmp_path, profile)
+    try:
+        # Default marquee mode is 'auto' with three choices in the UI
+        assert win.selection_ui.mode == 'auto'
+        assert win.selection_ui.mode_combo.count() == 3
+        assert win.studio.selection_mode.count() == 3
+
+        # wire0 spans (0,-1000)..(20000,1000); a small box intersects but does not contain it.
+        p_left = QPointF(scene_to_viewport(win, 1000, 3000))   # scene (1000,-3000)
+        p_right = QPointF(scene_to_viewport(win, 3000, -3000))  # scene (3000,3000)
+
+        # Left->right drag uses effective 'contains' mode
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress, p_left, p_left,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+        assert win.selection_ui.begin(press)
+        win.selection_ui._update_preview(p_right)
+        assert 'wire0' not in win.selection_ui.ids()
+        win.selection_ui.cancel()
+
+        # Right->left drag uses effective 'intersects' mode
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress, p_right, p_right,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+        assert win.selection_ui.begin(press)
+        win.selection_ui._update_preview(p_left)
+        assert 'wire0' in win.selection_ui.ids()
+        win.selection_ui.cancel()
+
+        # Arrow keys pan the camera without mutating the workspace
+        win.selection_ui.set_ids([uid_a])
+        from PySide6.QtGui import QKeyEvent
+        from colayout_lite.camera import capture as capture_camera
+        cam_before = capture_camera(win.canvas)
+        rev_before = win.editor.w.revision
+        wire_before = win.editor.w.baseline.objects['wire0'].shape.points
+        win.canvas.keyPressEvent(
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier)
+        )
+        QApplication.processEvents()
+        cam_after = capture_camera(win.canvas)
+        dx = cam_after.center.x() - cam_before.center.x()
+        dy = cam_after.center.y() - cam_before.center.y()
+        assert dx > 1000 and abs(dy) < abs(dx) * 0.1
+        win.canvas.keyPressEvent(
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
+        )
+        QApplication.processEvents()
+        cam_up = capture_camera(win.canvas)
+        # World Y increases upward, which is decreasing scene Y in our mapping.
+        assert cam_up.center.y() < cam_after.center.y()
+        assert win.editor.w.revision == rev_before
+        assert win.editor.w.baseline.objects['wire0'].shape.points == wire_before
+
+        # Shift+drag on a rectangle locks to the dominant axis instead of entering marquee
+        win.selection_ui.move_box.setChecked(True)
+        QApplication.processEvents()
+        win.selection_ui.set_ids([uid_a])
+        QApplication.processEvents()
+        center = QPointF(scene_to_viewport(win, 8000, 8000))
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress, center, center,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier,
+        )
+        assert win.human.begin(press)
+        move = QMouseEvent(
+            QEvent.Type.MouseMove, center + QPointF(80, 30), center + QPointF(80, 30),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier,
+        )
+        assert win.human.move(move)
+        dx, dy = win.human.armed['delta']
+        assert dx != 0 and dy == 0
+        win.human.cancel()
+
+        # Shift+drag on a movable target when a read-only wire is already selected never raises LiteError
+        win.region_panel._set_scope(reg_id)
+        win.fit()
+        QApplication.processEvents()
+        locked_wire = win.editor.w.baseline.objects['wire0'].model_copy(
+            update={'read_only_reason': 'locked'}
+        )
+        win.editor.w = win.editor.w.model_copy(
+            update={
+                'baseline': win.editor.w.baseline.model_copy(
+                    update={'objects': {**win.editor.w.baseline.objects, 'wire0': locked_wire}}
+                )
+            }
+        )
+        win.selection_ui.set_ids(['wire0'])
+        inner_center = QPointF(scene_to_viewport(win, 8000, 8000))
+        inner_press = QMouseEvent(
+            QEvent.Type.MouseButtonPress, inner_center, inner_center,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier,
+        )
+        assert win.human.begin(inner_press)
+        assert win.human.armed['ids'] == [uid_b]
+        win.human.cancel()
+
+        # GuardPanel PathCapture preserves middle-button pan and restores CrossCursor on release
+        from colayout_lite.guard_panel import show as show_guard
+        show_guard(win)
+        guard_panel = win.guard_panel
+        win.guard_popup.hide()
+        guard_panel.capture.start()
+        assert win.canvas.cursor().shape() == Qt.CursorShape.CrossCursor
+        p_mid = scene_to_viewport(win, 6000, 6000)
+        QTest.mousePress(win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=p_mid)
+        QTest.mouseMove(win.canvas.viewport(), p_mid + QPoint(25, 15), delay=-1)
+        QTest.mouseRelease(
+            win.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=p_mid + QPoint(25, 15)
+        )
+        QApplication.processEvents()
+        assert win.canvas._pan_last is None
+        assert win.canvas.cursor().shape() == Qt.CursorShape.CrossCursor
+        guard_panel.capture.cancel()
     finally:
         win.close()

@@ -27,10 +27,25 @@ class ToolPopover(QDialog):
         self.move(min(anchor.x(),available.right()-self.width()),min(anchor.y(),available.bottom()-self.height()))
         self.show();self.raise_()
 
+    def _can_pass_through(self):
+        if not (callable(getattr(self.panel,'start',None)) and hasattr(self.panel,'draw') and getattr(self.panel.draw,'isEnabled',lambda:False)()):
+            return False
+        from .pour_panel import PourPanel
+        if isinstance(self.panel,PourPanel) and not self.panel.net.text().strip():
+            return False
+        return True
+
     def eventFilter(self,obj,event):
         if self.isVisible() and event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton:
-            if self.owner.canvas.region_select or getattr(getattr(self.panel,'capture',None),'active',False):self.dismiss_for_drawing()
-            elif not getattr(self.panel,'_running',False):self.hide()
+            if obj is not self.owner.canvas.viewport():
+                return False
+            already_drawing=self.owner.canvas.region_select or getattr(getattr(self.panel,'capture',None),'active',False)
+            if already_drawing:
+                self.dismiss_for_drawing()
+            elif self._can_pass_through():
+                self.panel.start(True)
+            elif not getattr(self.panel,'_running',False):
+                self.hide()
         return False
 
     def dismiss_for_drawing(self):super().hide()

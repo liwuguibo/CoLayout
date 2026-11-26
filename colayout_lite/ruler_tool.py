@@ -205,6 +205,40 @@ class RulerTool(QObject):
         ) or (best_y is not None and abs(best_y - raw_y) <= tol_dbu)
         return (snapped_x, snapped_y), snapped_edge
 
+    def right_click(self):
+        if self.p0 is not None:
+            self.p0 = None
+            self.changed.emit()
+            self.window.canvas.viewport().update()
+            self.window.status.setText('已取消当前标尺起点，可重新选择起点。')
+        else:
+            self.cancel_capture()
+            self.window.status.setText('已退出标尺测距（已放置标尺保留；Shift+K 清除）。')
+
+    def handle_key(self, event) -> bool:
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            self.mode = 'diagonal' if self.mode == 'orthogonal' else 'orthogonal'
+            if self.p0 is not None and self.cursor is not None:
+                self.cursor = self._constrain(self.p0, self.cursor)
+            mode_label = '正交' if self.mode == 'orthogonal' else '斜向'
+            self.window.status.setText(f'标尺模式已切换为：{mode_label}')
+            self.changed.emit()
+            self.window.canvas.viewport().update()
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancel_capture()
+            self.window.status.setText('已取消当前标尺测距（已放置标尺保留；Shift+K 清除）。')
+            return True
+        if event.key() == Qt.Key.Key_Backspace:
+            if self.p0 is not None:
+                self.p0 = None
+                self.changed.emit()
+                self.window.canvas.viewport().update()
+            return True
+        if event.key() == Qt.Key.Key_Delete:
+            return True
+        return False
+
     def eventFilter(self, obj, event):
         if not self.active:
             return False
@@ -222,15 +256,23 @@ class RulerTool(QObject):
         ):
             if obj is not self.window.canvas.viewport():
                 return False
-            # Preserve middle-button panning during active ruler measurement.
-            if (
-                kind == QEvent.Type.MouseButtonPress
-                and event.button() == Qt.MouseButton.MiddleButton
-            ) or self.window.canvas._pan_last is not None:
+            canvas = self.window.canvas
+            if getattr(canvas, '_pan_last', None) is not None:
+                if kind == QEvent.Type.MouseMove and not (
+                    event.buttons() & canvas._pan_button
+                ):
+                    canvas._end_pan()
+                else:
+                    return False
+            if kind in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseButtonDblClick,
+            ) and event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
                 return False
 
-            scene_pt = self.window.canvas.mapToScene(event.position().toPoint())
-            self.window.canvas.cursor_moved.emit(scene_pt.x(), -scene_pt.y())
+            scene_pt = canvas.mapToScene(event.position().toPoint())
+            canvas.cursor_moved.emit(scene_pt.x(), -scene_pt.y())
             if kind == QEvent.Type.MouseButtonRelease:
                 return True
 
@@ -255,37 +297,22 @@ class RulerTool(QObject):
                         dy = target[1] - self.p0[1]
                         dist = hypot(dx, dy)
                         scale = e.profile.dbu_per_micron
-                        self.cancel_capture()
+                        self.p0 = None
                         self.window.status.setText(
                             f'标尺：{format_um(dist, scale)} µm'
-                            f'（ΔX={format_um(dx, scale)}, ΔY={format_um(dy, scale)} µm）· Shift+K 清除'
+                            f'（ΔX={format_um(dx, scale)}, ΔY={format_um(dy, scale)} µm）· 可继续测距，右键/Esc/K 退出，Shift+K 清除'
                         )
-                        return True
-                elif event.button() == Qt.MouseButton.RightButton:
-                    if self.p0 is not None:
-                        self.p0 = None
-                    else:
-                        self.cancel_capture()
+                        self.changed.emit()
+                        self.window.view_state_changed.emit()
+                        canvas.viewport().update()
                         return True
 
             self.changed.emit()
-            self.window.canvas.viewport().update()
+            canvas.viewport().update()
             return True
 
         if kind == QEvent.Type.KeyPress:
-            if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-                self.mode = 'diagonal' if self.mode == 'orthogonal' else 'orthogonal'
-                if self.p0 is not None and self.cursor is not None:
-                    self.cursor = self._constrain(self.p0, self.cursor)
-                mode_label = '正交' if self.mode == 'orthogonal' else '斜向'
-                self.window.status.setText(f'标尺模式已切换为：{mode_label}')
-                self.changed.emit()
-                self.window.canvas.viewport().update()
-                return True
-            if event.key() == Qt.Key.Key_Escape:
-                self.cancel_capture()
-                self.window.status.setText('已取消当前标尺测距（已放置标尺保留；Shift+K 清除）。')
-                return True
+            return self.handle_key(event)
         return False
 
     def paint(self, painter):

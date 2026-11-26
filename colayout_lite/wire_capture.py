@@ -263,6 +263,61 @@ class WireCapture(QObject):
     def _emit(self):
         self.changed(self._current_draft())
 
+    def undo_step(self) -> bool:
+        if not self.draft.points:
+            return False
+        if self._history:
+            self.draft = self._history.pop()
+        else:
+            self.draft = DraftRoute(
+                self.draft.points[:-1],
+                self.draft.layers[:-1] if self.draft.layers else (),
+                self.draft.widths_um[:-1] if self.draft.widths_um else (),
+                self.draft.via_definitions[:-1] if self.draft.via_definitions else (),
+                self.draft.cut_rows,
+                self.draft.cut_columns,
+                self.draft.net_intent,
+            )
+        if not self.draft.points:
+            self.cursor = None
+        self._emit()
+        return True
+
+    def right_click(self):
+        if self.draft.points:
+            self.undo_step()
+        else:
+            self.cancel()
+
+    def handle_key(self, event) -> bool:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.end()
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancel()
+            return True
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            label = self.cycle_posture()
+            if hasattr(self.window, 'status'):
+                self.window.status.setText(f'走线折线姿态：{label}（Space 切换）')
+            return True
+        if event.key() in (Qt.Key.Key_BracketLeft, Qt.Key.Key_PageDown) and self.step_layer:
+            self.step_layer(-1)
+            return True
+        if event.key() in (Qt.Key.Key_BracketRight, Qt.Key.Key_PageUp) and self.step_layer:
+            self.step_layer(1)
+            return True
+        if event.key() == Qt.Key.Key_Backspace or (
+            event.key() == Qt.Key.Key_U
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            if self.draft.points:
+                self.undo_step()
+            return True
+        if event.key() == Qt.Key.Key_Delete:
+            return True
+        return False
+
     def eventFilter(self, obj, event):
         if not self.active:
             return False
@@ -279,15 +334,24 @@ class WireCapture(QObject):
         ):
             if obj is not self.window.canvas.viewport():
                 return False
-            if (
-                kind == QEvent.Type.MouseButtonPress
-                and event.button() == Qt.MouseButton.MiddleButton
-            ) or getattr(self.window.canvas, '_pan_last', None) is not None:
+            canvas = self.window.canvas
+            if getattr(canvas, '_pan_last', None) is not None:
+                if kind == QEvent.Type.MouseMove and not (
+                    event.buttons() & canvas._pan_button
+                ):
+                    canvas._end_pan()
+                else:
+                    return False
+            if kind in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseButtonDblClick,
+            ) and event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
                 return False
 
-            position = self.window.canvas.mapToScene(event.position().toPoint())
-            if hasattr(self.window.canvas, 'cursor_moved'):
-                self.window.canvas.cursor_moved.emit(position.x(), -position.y())
+            position = canvas.mapToScene(event.position().toPoint())
+            if hasattr(canvas, 'cursor_moved'):
+                canvas.cursor_moved.emit(position.x(), -position.y())
             if kind == QEvent.Type.MouseButtonRelease:
                 return True
 
@@ -320,37 +384,8 @@ class WireCapture(QObject):
                     if kind == QEvent.Type.MouseButtonDblClick:
                         self.end()
                         return True
-                elif event.button() == Qt.MouseButton.RightButton and self.draft.points:
-                    if self._history:
-                        self.draft = self._history.pop()
-                    else:
-                        self.draft = DraftRoute(
-                            self.draft.points[:-1],
-                            self.draft.layers[:-1] if self.draft.layers else (),
-                            self.draft.widths_um[:-1] if self.draft.widths_um else (),
-                            self.draft.via_definitions[:-1] if self.draft.via_definitions else (),
-                            self.draft.cut_rows,
-                            self.draft.cut_columns,
-                            self.draft.net_intent,
-                        )
             self._emit()
             return True
         if kind == QEvent.Type.KeyPress:
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self.end()
-                return True
-            if event.key() == Qt.Key.Key_Escape:
-                self.cancel()
-                return True
-            if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-                label = self.cycle_posture()
-                if hasattr(self.window, 'status'):
-                    self.window.status.setText(f'走线折线姿态：{label}（Space 切换）')
-                return True
-            if event.key() in (Qt.Key.Key_BracketLeft, Qt.Key.Key_PageDown) and self.step_layer:
-                self.step_layer(-1)
-                return True
-            if event.key() in (Qt.Key.Key_BracketRight, Qt.Key.Key_PageUp) and self.step_layer:
-                self.step_layer(1)
-                return True
+            return self.handle_key(event)
         return False

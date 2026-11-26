@@ -9,6 +9,7 @@ from .bounds_edit import BoundsEdit
 from .pin_placement import candidate as pin_candidate,center as pin_center
 from .canvas_hits import handles,editable_at,foreground_frame_at
 from .drag_visual import DragVisual,FrameVisual
+from .gesture_policy import movable_selection
 
 
 class MouseEdit:
@@ -41,6 +42,29 @@ class MouseEdit:
         if len(ids)!=1 or self.resize_target!=ids[0]:return None
         return next(((ids[0],key) for key,rect in handles(self.window,ids[0]) if rect.adjusted(-3,-3,3,3).contains(pixel)),None)
 
+    def _editable_kind(self,uid):
+        if not uid or not self.window.editor:return None
+        try:return HumanEdit(self.window.editor).kind(uid)
+        except LiteError:return None
+
+    def _shift_drag_ids(self,picked,kind,selected):
+        w=self.window;selected=list(selected)
+        allowed=('instance','area','shape','mpp','markup','keepout')
+        if picked in selected:
+            kinds=[self._editable_kind(uid) for uid in selected]
+            if len(selected)>1 and any(k in ('markup','keepout') for k in kinds):
+                return [picked]
+            if all(k in allowed and movable_selection(w,[uid]) for uid,k in zip(selected,kinds)):
+                return list(selected)
+            return [picked]
+        if kind in ('markup','keepout'):
+            return [picked]
+        if selected:
+            kinds=[self._editable_kind(uid) for uid in selected]
+            if all(k in allowed and k not in ('markup','keepout') and movable_selection(w,[uid]) for uid,k in zip(selected,kinds)):
+                return list(dict.fromkeys([*selected,picked]))
+        return [picked]
+
     def begin(self,event):
         w=self.window
         if w.busy or not w.editor or event.button()!=Qt.MouseButton.LeftButton:return False
@@ -57,7 +81,7 @@ class MouseEdit:
         if shift:
             try:kind=HumanEdit(w.editor).kind(picked) if picked else None
             except LiteError:kind=None
-            if kind not in ('instance','area'):
+            if kind not in ('instance','area','shape','mpp','markup','keepout') or not movable_selection(w,[picked]):
                 self.cancel();w.inspection.clear_trace();return False
         move_selection=bool(selected and picked in selected and not (hit and hit['pin'].get('guard') and not w.selection_ui.move_conductors))
         if move_selection:
@@ -68,7 +92,7 @@ class MouseEdit:
         if shift:
             # Defer Shift-click's selection toggle until release; an actual
             # drag instead moves the device/group with an axis constraint.
-            self.armed={'ids':selected if picked in selected else [picked],
+            self.armed={'ids':self._shift_drag_ids(picked,kind,selected),
                 'shift_click':picked,'old_selection':set(selected)}
             w.inspection.clear_trace()
         elif handle:
@@ -111,7 +135,6 @@ class MouseEdit:
         self.armed.update(frame_foreground=frame_target if hit is None else None,pixel=QPointF(pixel),start=(scene.x(),-scene.y()),revision=w.editor.w.revision,
             editor=w.editor,scope=w.editor.scope_id,camera=QTransform(w.canvas.viewportTransform()),delta=(0,0))
         if 'ids' in self.armed:
-            from .gesture_policy import movable_selection
             if not movable_selection(w,self.armed['ids']):
                 self.armed['inspect_only']=True
                 if not self.armed.get('frame_foreground'):w.inspection.pick(scene.x(),-scene.y())
@@ -125,7 +148,7 @@ class MouseEdit:
 
     def move(self,event):
         if not self.armed:
-            if self.window.editor and not self.window.canvas.region_select:
+            if self.window.editor and not self.window.canvas._active_crosshair():
                 hit=self.handle_at(event.position())
                 cursors={'nw':Qt.CursorShape.SizeFDiagCursor,'se':Qt.CursorShape.SizeFDiagCursor,'ne':Qt.CursorShape.SizeBDiagCursor,
                     'sw':Qt.CursorShape.SizeBDiagCursor,'n':Qt.CursorShape.SizeVerCursor,'s':Qt.CursorShape.SizeVerCursor,
@@ -211,7 +234,9 @@ class MouseEdit:
     def cancel(self):
         if self.visual:self.visual.close();self.visual=None
         self.armed=None;self.dragging=False;self.pin_selected=None;self.preview_pins={};self.preview_bounds=None;self.error=None
-        self.window.canvas.unsetCursor();self.window.canvas.viewport().update()
+        if self.window.canvas._active_crosshair():self.window.canvas.setCursor(Qt.CursorShape.CrossCursor)
+        else:self.window.canvas.unsetCursor()
+        self.window.canvas.viewport().update()
 
     def can_resize(self):
         if self.window.busy or not self.window.editor or self.window.editor.w.state in ('submitting','indeterminate','conflict'):return False
@@ -249,15 +274,45 @@ class MouseEdit:
         self.refresh_selection()
 
     def context_menu(self,pos):
+        if self.window.canvas._active_crosshair():
+            return
         studio=getattr(self.window,'studio',None)
-        if not self.ids() and not studio:return
-        hit=self.window.inspection.hit_pin(pos)
+        pixel=QPointF(pos)
+        hit=self.window.inspection.hit_pin(pixel)
         pin_target=None
+        uid=None
         if hit and hit['pin'].get('local'):
             pin_target=(hit['pin']['owner'],hit['pin']['id'])
             self.window.region_panel.select_pin(*pin_target,trace=False)
-        elif hit is None and studio and studio.inspector._pin:
-            pin_target=(studio.inspector._uid(),studio.inspector._pin)
+        else:
+            if hit:
+                uid=hit['pin']['owner']
+            else:
+                uid=editable_at(self.window,pixel)
+                if uid is None and getattr(self.window,'selection_ui',None):
+                    uid=self.window.selection_ui.pick_id(pixel)
+            if uid is not None and uid not in self.ids():
+                if getattr(self.window,'selection_ui',None):
+                    self.window.selection_ui.set_ids([uid])
+                else:
+                    self.select(uid)
+            if hit is None and studio and studio.inspector._pin:
+                insp_uid=studio.inspector._uid()
+                if insp_uid and (uid is None or uid==insp_uid):
+                    pin_target=(insp_uid,studio.inspector._pin)
+        selected_ids=self.ids()
+        if not selected_ids and not pin_target and studio:
+            menu=QMenu(self.window)
+            menu.addAction(studio.commands.actions['fit'])
+            menu.addAction(studio.commands.actions['copy_task_context'])
+            if self.window.inspection.trace:
+                menu.addAction(studio.commands.actions['clear_net'])
+            if getattr(self.window,'ruler',None) and self.window.ruler.current_rulers():
+                menu.addAction(studio.commands.actions['clear_rulers'])
+            menu.exec(self.window.canvas.mapToGlobal(pos))
+            return
+        if not selected_ids and not studio:
+            return
         menu=QMenu(self.window)
         if pin_target:
             action=menu.addAction('复制 PIN');action.setObjectName('contextCopyPin')
@@ -271,14 +326,14 @@ class MouseEdit:
             menu.addAction('属性',studio.show_properties)
             studio.commands.refresh();menu.addAction(studio.commands.actions['copy_id'])
             menu.addAction(studio.commands.actions['copy_task_context']);menu.addSeparator()
-            if len(self.ids())==1 and self.ids()[0] in self.window.editor.w.local_data.regions:
+            if len(selected_ids)==1 and selected_ids[0] in self.window.editor.w.local_data.regions:
                 for key in ('region_drc_local','region_drc_remote'):menu.addAction(studio.commands.actions[key])
                 menu.addSeparator()
         if self.can_resize():
             action=menu.addAction('完成边界调整' if self.resize_target else '调整边界')
             action.triggered.connect(lambda:self.set_resize_enabled(not bool(self.resize_target)));menu.addSeparator()
         if studio:
-            if self.ids():
+            if selected_ids:
                 for key in ('rotate','mirror_h','mirror_v','delete','dissolve'):menu.addAction(studio.commands.actions[key])
         else:
             for label,key in [('旋转 90°','rotate'),('左右镜像','mirror_h'),('上下镜像','mirror_v'),('删除互连','delete')]:

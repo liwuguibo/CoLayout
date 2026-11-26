@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from PySide6.QtCore import Qt,QObject,QEvent
 from PySide6.QtGui import QShortcut,QKeySequence
-from PySide6.QtWidgets import (QApplication,QVBoxLayout,QFormLayout,QKeySequenceEdit,
+from PySide6.QtWidgets import (QApplication,QWidget,QVBoxLayout,QFormLayout,QKeySequenceEdit,
     QComboBox,QDialogButtonBox,QLabel,QPushButton,QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox)
 from .transactions import write_json_atomic
 from .presentation.dark_dialog import DarkDialog
@@ -50,12 +50,81 @@ class ShortcutManager(QObject):
         app=QApplication.instance()
         if app:app.removeEventFilter(self)
 
+    def _belongs_to_window(self,obj):
+        if not isinstance(obj,QWidget):
+            return False
+        w=obj
+        while w is not None:
+            if w is self.window:
+                return True
+            w=w.parent()
+        return False
+
+    def _active_modal(self):
+        wire=getattr(getattr(self.window,'wire_panel',None),'capture',None)
+        if wire is not None and getattr(wire,'active',False):
+            return wire
+        guard=getattr(getattr(self.window,'guard_panel',None),'capture',None)
+        if guard is not None and getattr(guard,'active',False):
+            return guard
+        ruler=getattr(self.window,'ruler',None)
+        if ruler is not None and getattr(ruler,'active',False):
+            return ruler
+        return None
+
+    def _is_modal_intercept_key(self,event,modal):
+        key=event.key()
+        if key in (Qt.Key.Key_Escape,Qt.Key.Key_Return,Qt.Key.Key_Enter,Qt.Key.Key_Space,
+                   Qt.Key.Key_Backspace,Qt.Key.Key_Delete,Qt.Key.Key_BracketLeft,
+                   Qt.Key.Key_BracketRight,Qt.Key.Key_PageUp,Qt.Key.Key_PageDown):
+            return True
+        if key==Qt.Key.Key_U and event.modifiers()==Qt.KeyboardModifier.NoModifier:
+            from .wire_capture import WireCapture
+            from .path_capture import PathCapture
+            return isinstance(modal,(WireCapture,PathCapture))
+        return False
+
     def eventFilter(self,obj,event):
+        if event.type() in (QEvent.Type.WindowDeactivate,QEvent.Type.ApplicationDeactivate):
+            if obj is self.window or obj is QApplication.instance():
+                canvas=getattr(self.window,'canvas',None)
+                if canvas is not None and getattr(canvas,'_pan_last',None) is not None:
+                    canvas._end_pan()
+            return False
         if event.type()==QEvent.Type.ShortcutOverride:
-            focus=QApplication.focusWidget()
+            focus=QApplication.focusWidget() or self.window.focusWidget()
             if focus and (focus.window() is self.window or self.window.isAncestorOf(focus)) and isinstance(focus,(QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox)):
                 if event.modifiers() in (Qt.KeyboardModifier.NoModifier,Qt.KeyboardModifier.ShiftModifier) or (event.key() in (Qt.Key.Key_Z,Qt.Key.Key_Y,Qt.Key.Key_R) and event.modifiers() in (Qt.KeyboardModifier.ControlModifier,Qt.KeyboardModifier.ControlModifier|Qt.KeyboardModifier.ShiftModifier)):
                     event.accept();return True  # Typing F/Shift+K/Delete in a text field remains text editing.
+            if self._belongs_to_window(obj):
+                modal=self._active_modal()
+                if modal is not None and self._is_modal_intercept_key(event,modal):
+                    event.accept();return True
+                if event.key()==Qt.Key.Key_Escape:
+                    event.accept();return True
+        if event.type()==QEvent.Type.KeyPress:
+            focus=QApplication.focusWidget() or self.window.focusWidget()
+            if focus and (focus.window() is self.window or self.window.isAncestorOf(focus)) and isinstance(focus,(QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox)):
+                return False
+            if not self._belongs_to_window(obj):
+                return False
+            if not (obj is focus or (focus is None and obj in (self.window,self.window.canvas,self.window.canvas.viewport())) or obj in (self.window.canvas,self.window.canvas.viewport())):
+                return False
+            modal=self._active_modal()
+            if modal is not None and modal.handle_key(event):
+                event.accept();return True
+            if event.key()==Qt.Key.Key_Escape:
+                self.window.canvas._end_pan()
+                if self.window.canvas.region_select:
+                    self.window.canvas.region_select=False
+                    self.window.canvas.region_cancelled.emit()
+                    self.window.canvas.unsetCursor()
+                else:
+                    self.window.canvas._normal_press=None
+                    self.window.canvas._preview_press=False
+                    self.window.canvas.inspection_clear.emit()
+                self.window.canvas.setFocus()
+                event.accept();return True
         return False
 
     def bind(self,callbacks):self.callbacks=callbacks;self.apply(self.values)

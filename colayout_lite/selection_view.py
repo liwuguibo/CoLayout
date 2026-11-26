@@ -15,16 +15,16 @@ class SelectionView(QObject):
     def __init__(self,window,bar,path):
         super().__init__(window);self._closed=False
         self.window=window;self.path=path;self.gesture=None;self.rubber=None;self.key=None;self.rows={}
-        self.mode='contains';self.dim_objects=False;self.move_conductors=False
+        self.mode='auto';self.dim_objects=False;self.move_conductors=False
         if path.exists():
             try:
                 data=json.loads(path.read_text(encoding='utf8'))
-                if data.get('marquee') in ('contains','intersects'):self.mode=data['marquee']
+                if data.get('marquee') in ('auto','contains','intersects'):self.mode=data['marquee']
                 self.dim_objects=data.get('dim_objects') is True
                 self.move_conductors=data.get('move_conductors') is True
             except (ValueError,OSError):pass
         bar.addWidget(QLabel('框选：'))
-        self.mode_combo=QComboBox();self.mode_combo.addItem('完整包含','contains');self.mode_combo.addItem('相交即选','intersects')
+        self.mode_combo=QComboBox();self.mode_combo.addItem('自动（左包含/右相交）','auto');self.mode_combo.addItem('完整包含','contains');self.mode_combo.addItem('相交即选','intersects')
         self.mode_combo.setCurrentIndex(self.mode_combo.findData(self.mode));bar.addWidget(self.mode_combo)
         self.dim_box=QCheckBox('选择对象时 DIM');self.dim_box.setChecked(self.dim_objects);bar.addWidget(self.dim_box)
         self.dim_box.setToolTip('只影响普通对象选择；选中的对象保持明亮。点击 PIN 或有效金属的网络查看始终 DIM。')
@@ -149,7 +149,9 @@ class SelectionView(QObject):
         if not self.rubber and (position-g['start']).manhattanLength()<QApplication.startDragDistance():return True
         self.rubber=QRectF(g['start'],position).normalized()
         rect=w.canvas.mapToScene(self.rubber.toRect()).boundingRect()
-        hits={uid for uid in in_box(self.rows,((rect.left(),-rect.bottom()),(rect.right(),-rect.top())),g['mode'])
+        eff_mode='contains' if g['mode']=='auto' and position.x()>=g['start'].x() else 'intersects' if g['mode']=='auto' else g['mode']
+        g['effective_mode']=eff_mode
+        hits={uid for uid in in_box(self.rows,((rect.left(),-rect.bottom()),(rect.right(),-rect.top())),eff_mode)
               if self._owner_layer_visible(uid)}
         g['preview']=hits | (g['old'] if g['add'] else set())
         self.count.setText(f'已选 {len(g["preview"])} 个对象')
@@ -234,10 +236,13 @@ class SelectionView(QObject):
                 painter.setPen(QPen(QColor(colors.selection_halo),5));painter.drawPath(path)
                 painter.setBrush(Qt.BrushStyle.NoBrush);painter.setPen(QPen(QColor(colors.selection),2 if colors.name=='compact' else 2.5));painter.drawPath(path)
             if self.rubber:
-                color=QColor(colors.marquee_contains if self.gesture['mode']=='contains' else colors.marquee_intersects)
-                painter.setPen(QPen(color,2,Qt.PenStyle.SolidLine if self.gesture['mode']=='contains' else Qt.PenStyle.DashLine))
+                eff_mode=self.gesture.get('effective_mode','contains' if self.gesture['mode']=='auto' else self.gesture['mode'])
+                color=QColor(colors.marquee_contains if eff_mode=='contains' else colors.marquee_intersects)
+                painter.setPen(QPen(color,2,Qt.PenStyle.SolidLine if eff_mode=='contains' else Qt.PenStyle.DashLine))
                 fill=QColor(color);fill.setAlpha(32);painter.setBrush(fill);painter.drawRect(self.rubber)
                 from .fonts import ui_font
                 painter.setFont(ui_font(9));painter.drawText(self.rubber.topLeft()+QPointF(5,-6),
-                    ('完整包含' if self.gesture['mode']=='contains' else '相交即选')+f' · {len(self.ids())} 个对象')
+                    ('自动·完整包含' if self.gesture['mode']=='auto' and eff_mode=='contains' else
+                     '自动·相交即选' if self.gesture['mode']=='auto' else
+                     '完整包含' if eff_mode=='contains' else '相交即选')+f' · {len(self.ids())} 个对象')
         finally:painter.restore()
